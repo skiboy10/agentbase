@@ -41,6 +41,27 @@ Never commit instance configuration. The following are machine-specific and must
 
 If you find yourself needing to commit a change to make your local setup work, put it in `docker-compose.override.yml` instead.
 
+### Pre-commit hooks and the private-terms scan
+
+Enable the repo's commit guards once per clone:
+
+```bash
+./scripts/setup-git-hooks.sh
+```
+
+The pre-commit hook blocks data files, `.env` files, and oversized binaries. It also supports an **optional local denylist** for your own sensitive vocabulary — client names, internal hostnames, usernames — so they can never ride along in a commit:
+
+```bash
+# One term per line, matched case-insensitively; '#' comments allowed
+cat > .git/private-terms.txt <<'EOF'
+# my sensitive terms
+internal-project-codename
+bigclient
+EOF
+```
+
+The file lives inside `.git/`, so it is never committed and is shared automatically by all your worktrees. If the hook blocks a term you intended (e.g. in a test fixture), fix the wording — or bypass consciously with `git commit --no-verify`.
+
 ## Running Tests
 
 Backend tests run inside the container against SQLite (no Postgres or Qdrant required):

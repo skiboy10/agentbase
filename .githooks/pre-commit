@@ -70,6 +70,34 @@ if [ -n "$WARN_FILES" ]; then
     WARNINGS=$((WARNINGS + 1))
 fi
 
+# Check 6: Private-terms scan (optional, local-only denylist)
+#
+# Keeps YOUR sensitive vocabulary (client names, internal hostnames,
+# usernames, project codenames) out of commits. Create the file
+#   <git-dir>/private-terms.txt        (i.e. .git/private-terms.txt)
+# with one term per line ('#' comments allowed). Terms are matched
+# case-insensitively as fixed strings against added lines and staged
+# file paths. The file lives inside .git/, so it is never committed,
+# never shipped, and is shared automatically by all worktrees.
+TERMS_FILE="$(git rev-parse --git-common-dir)/private-terms.txt"
+if [ -f "$TERMS_FILE" ]; then
+    TERMS=$(grep -vE '^[[:space:]]*#|^[[:space:]]*$' "$TERMS_FILE" || true)
+    if [ -n "$TERMS" ]; then
+        ADDED_LINES=$(git diff --cached --diff-filter=ACM | grep -E '^\+' | grep -vE '^\+\+\+' || true)
+        while IFS= read -r term; do
+            [ -z "$term" ] && continue
+            HIT_LINES=$(printf '%s\n' "$ADDED_LINES" | grep -inF -- "$term" | head -3 || true)
+            HIT_PATHS=$(printf '%s\n' "$STAGED_FILES" | grep -iF -- "$term" || true)
+            if [ -n "$HIT_LINES" ] || [ -n "$HIT_PATHS" ]; then
+                echo -e "${RED}ERROR: Private term \"$term\" found in staged changes.${NC}"
+                [ -n "$HIT_PATHS" ] && echo "$HIT_PATHS" | sed 's/^/  path: /'
+                [ -n "$HIT_LINES" ] && printf '%s\n' "$HIT_LINES" | cut -c1-160 | sed 's/^/  line: /'
+                ERRORS=$((ERRORS + 1))
+            fi
+        done <<< "$TERMS"
+    fi
+fi
+
 # Summary
 echo ""
 if [ $ERRORS -gt 0 ]; then
