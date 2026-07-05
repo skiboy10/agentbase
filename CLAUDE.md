@@ -188,7 +188,7 @@ mkdir -p ~/agentbase-data/{postgres,qdrant,uploads,agent-dev}
 git commit --no-verify          # Bypass (not recommended)
 ```
 
-Hooks block: data files (.db, .sqlite, credentials), .env, large files (>10MB).
+Hooks block: data files (.db, .sqlite, credentials), .env, large files (>10MB), and any term listed in the optional local denylist at `.git/private-terms.txt` (one term per line, case-insensitive, matched against added lines and staged paths; never committed, shared by all worktrees — see CONTRIBUTING.md).
 
 **Release Verification:**
 ```bash
@@ -196,13 +196,11 @@ Hooks block: data files (.db, .sqlite, credentials), .env, large files (>10MB).
 ./scripts/verify-release.sh --keep  # Keep test dir for inspection
 ```
 
-**Public Release:**
+**Releasing:** this repo IS the public repo (`skiboy10/agentbase`, the primary development repo since v1) — there is no separate export step. A release is: bump `VERSION` + `frontend/package.json` (+ lockfile), date the CHANGELOG entry, then tag and publish:
 ```bash
-./scripts/release-to-public.sh          # Push to public repo
-./scripts/release-to-public.sh v1.0.0   # Push with version tag
+git tag -a vX.Y.Z -m "Agentbase vX.Y.Z" && git push origin vX.Y.Z
+gh release create vX.Y.Z --title "Agentbase vX.Y.Z" --notes-file <changelog-excerpt>
 ```
-
-Repo: `skiboy10/agentbase` (public — the primary development repo since v1)
 
 ## Development Environment
 
@@ -264,7 +262,8 @@ Agentbase is open source and read by external users, customers, and agents (via 
 - Use `Jane Doe` / `John Doe` for example individuals when needed.
 - Use generic product names (`Product Documentation`, `Sales Playbook`) when describing specific content types.
 - This applies to: `placeholder=`, `e.g., ...` strings, JSON examples in API.md, MCP guide tool examples, docstring `Example::` blocks, test fixture paths (`/tmp/<client>` → `/tmp/acme`), and any helper/tooltip copy.
-- **Real client data in a user's local instance is fine** — this rule governs the *source code and docs* that ship in the repo, not the runtime database content the user indexes themselves.
+- **It equally applies to GitHub prose**: issue bodies, PR descriptions, and commit messages are public. When describing a bug observed against real data ("dogfooding"), genericize the runtime details — "an internal library showed 0 chunks", never the actual library/source/agent names, real file paths, or screenshots showing indexed content.
+- **Real client data in a user's local instance is fine** — this rule governs the *source code, docs, and public GitHub content* of the repo, not the runtime database content the user indexes themselves.
 
 If you're unsure whether a name in code is real-vs-fictional, treat it as real and replace.
 
