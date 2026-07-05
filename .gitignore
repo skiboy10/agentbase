@@ -160,8 +160,7 @@ BACKLOG_*.md
 .mcp.json
 
 # Tool-specific directories (except skills — those ship with the repo)
-.claude/*
-!.claude/skills/
+.claude/
 .playwright-mcp/
 
 # -----------------------------------------------------------------------------
