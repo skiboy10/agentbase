@@ -20,10 +20,10 @@ Curate knowledge into a RAG repository to create focused, specialized agents. Ma
 
 ## Project Status
 
--100% vibe-coded. I am not a developer. Take it for what it is.
--This is an early-stage MVP. It will require contributors to mature.
--"Experiments" section is very immature. More design thinking is required here.
--"Dogfooding" has been very helpful in bug resolution. Add a new source agentically and ask the agent to squash bugs during ingestion.
+- 100% vibe-coded. I am not a developer. Take it for what it is.
+- This is an early-stage MVP. It will require contributors to mature.
+- "Experiments" section is very immature. More design thinking is required here.
+- "Dogfooding" has been very helpful in bug resolution. Add a new source agentically and ask the agent to squash bugs during ingestion.
 
 FEEDBACK AND PRs WELCOME!
 
