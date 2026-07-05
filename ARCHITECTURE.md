@@ -603,7 +603,7 @@ CREATE TABLE api_keys (
 
 **Usage:**
 ```bash
-curl -H "Authorization: Bearer as_abc123..." https://api.example.com/api/agents
+curl -H "Authorization: Bearer <your-platform-key>" https://api.example.com/api/agents
 ```
 
 Scopes enforce read/write separation. MCP write tools enforce `Scope.WRITE` via `check_mcp_scope()`.
