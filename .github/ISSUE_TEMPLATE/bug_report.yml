@@ -1,0 +1,73 @@
+name: Bug report
+description: Report something that is broken or behaving unexpectedly
+title: "[bug]: "
+labels: ["type: bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please fill in as much detail as you can.
+
+        If this is a security vulnerability, do NOT file it here — see [SECURITY.md](https://github.com/skiboy10/agentbase/blob/main/SECURITY.md) for private reporting.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Describe the bug. What did you see?
+      placeholder: "Indexing a directory source fails with a 500 error when the path contains spaces."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: What should have happened instead?
+      placeholder: "The source indexes successfully and documents appear in the library."
+    validations:
+      required: true
+  - type: textarea
+    id: repro-steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps that trigger the bug.
+      placeholder: |
+        1. Create a directory source pointing at a folder with spaces in the name
+        2. Click Index
+        3. Observe the error in the indexing log
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The Agentbase version or commit hash you are running (see the VERSION file or release tag).
+      placeholder: "v0.3.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      description: How are you running Agentbase?
+      options:
+        - Docker Compose (default setup)
+        - Other (describe below)
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        Paste any relevant log output, e.g. from `docker compose logs backend`.
+        This is automatically formatted as code — no backticks needed. Remove any API keys or secrets before pasting.
+      render: shell
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Anything else that might help (OS, browser, custom configuration).
+    validations:
+      required: false

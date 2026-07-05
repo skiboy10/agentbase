@@ -1,0 +1,193 @@
+# =============================================================================
+# Agentbase .gitignore
+# Python/FastAPI backend + React/Vite/TypeScript frontend + Docker
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Environment Files
+# -----------------------------------------------------------------------------
+.env
+.env.local
+.env.*.local
+*.env
+
+# -----------------------------------------------------------------------------
+# Python
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+/lib/
+/lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Scripts venv (full venv that shouldn't be committed)
+scripts/agent_scripts/
+
+# -----------------------------------------------------------------------------
+# Node.js
+# -----------------------------------------------------------------------------
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Build outputs
+frontend/dist/
+frontend/build/
+*.tsbuildinfo
+
+# -----------------------------------------------------------------------------
+# Runtime Data (Docker volumes, uploads)
+# -----------------------------------------------------------------------------
+data/
+data/postgres/
+data/qdrant/
+data/uploads/
+
+# -----------------------------------------------------------------------------
+# Testing
+# -----------------------------------------------------------------------------
+.coverage
+htmlcov/
+.pytest_cache/
+.hypothesis/
+test-files/
+test_output/
+
+# -----------------------------------------------------------------------------
+# IDE / Editor
+# -----------------------------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.sublime-workspace
+*.sublime-project
+*.code-workspace
+
+# -----------------------------------------------------------------------------
+# Operating System
+# -----------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# -----------------------------------------------------------------------------
+# Logs
+# -----------------------------------------------------------------------------
+*.log
+logs/
+
+# -----------------------------------------------------------------------------
+# Database (local dev)
+# -----------------------------------------------------------------------------
+*.db
+*.sqlite
+*.sqlite3
+
+# -----------------------------------------------------------------------------
+# Docker
+# -----------------------------------------------------------------------------
+docker-compose.override.yml
+
+# -----------------------------------------------------------------------------
+# Secrets & Credentials
+# -----------------------------------------------------------------------------
+*.pem
+*.key
+credentials.json
+credentials*.json
+*_credentials.json
+secrets.json
+*_secrets.json
+
+# -----------------------------------------------------------------------------
+# Temporary Files
+# -----------------------------------------------------------------------------
+*.tmp
+*.temp
+.cache/
+tmp/
+temp/
+
+# -----------------------------------------------------------------------------
+# Archive (development artifacts)
+# -----------------------------------------------------------------------------
+.archive/
+
+# -----------------------------------------------------------------------------
+# Project-specific
+# -----------------------------------------------------------------------------
+# Sample/training content (not part of core)
+/knowledge/
+/knowledge-base/
+
+# Vertical-specific backlogs (private)
+BACKLOG_*.md
+!BACKLOG.md
+
+# MCP config (dev-specific)
+.mcp.json
+
+# Tool-specific directories (except skills — those ship with the repo)
+.claude/*
+!.claude/skills/
+.playwright-mcp/
+
+# -----------------------------------------------------------------------------
+# Documentation (agent working files)
+# -----------------------------------------------------------------------------
+docs/TEST_RESULTS_*.md
+docs/TEST_PLAN_*.md
+docs/EXTENSION_DECOUPLING_*.md
+
+# Extension-specific docs (belong in their respective repos)
+CLAUDE_AMPLLM_*.md
+EXTENSION_AUDIT*.md
+
+# -----------------------------------------------------------------------------
+# Data Files (prevent accidental commits)
+# -----------------------------------------------------------------------------
+*.csv
+*.xlsx
+*.xls
+*.parquet
+*.zip
+*.tar.gz
+*.tar
+*.gz
+
+# -----------------------------------------------------------------------------
+# Local content under extensions/ (e.g. yamaha-library-content) — not committed
+# -----------------------------------------------------------------------------
+extensions/*

@@ -1,0 +1,46 @@
+# Docker ignore file for Agentbase
+
+# Git
+.git
+.gitignore
+.gitmodules
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Backend
+backend/__pycache__/
+backend/.pytest_cache/
+backend/.venv/
+backend/app/__pycache__/
+**/__pycache__/
+*.pyc
+
+# Environment files with secrets
+.env.local
+.env.*.local
+**/.env
+
+# Docker
+docker-compose.override.yml
+
+# Documentation
+*.md
+!README.md
+
+# Tests
+backend/tests/
+**/.coverage
+
+# Temporary files
+*.tmp
+*.log
+.DS_Store

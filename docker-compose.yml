@@ -1,0 +1,171 @@
+# Agentbase - Docker Compose Configuration
+#
+# Data Persistence: All data is stored in ./data/ directory on your local filesystem
+# This ensures your data survives container rebuilds and is easy to backup.
+#
+# Directory structure created on first run:
+#   ./data/
+#   ├── postgres/    - PostgreSQL database files
+#   ├── qdrant/      - Vector store data (if using included Qdrant)
+#   └── uploads/     - Uploaded PDF files
+
+services:
+  # React Frontend
+  frontend:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    ports:
+      - "${FRONTEND_PORT:-3002}:80"
+    depends_on:
+      - backend
+    environment:
+      # Substituted into nginx.conf at container start so the backend can
+      # verify the request came through nginx (#49). Must match the value
+      # set on the backend service. Unset = backend ignores X-Forwarded-*.
+      - INTERNAL_FORWARD_SECRET=${INTERNAL_FORWARD_SECRET:-}
+    networks:
+      - agentbase-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:80" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  # FastAPI Backend
+  backend:
+    restart: unless-stopped
+    build:
+      context: ./backend
+      dockerfile: ../docker/Dockerfile.backend
+    ports:
+      - "${BACKEND_PORT:-8002}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-agentbase}:${POSTGRES_PASSWORD:-agentbase_password_change_me}@postgres:5432/${POSTGRES_DB:-agentbase}
+      - QDRANT_URL=${QDRANT_URL:-http://host.docker.internal:6333}
+      - QDRANT_API_KEY=${QDRANT_API_KEY:-}
+      - SECRET_KEY=${SECRET_KEY:-}
+      - AUTH_TOKEN=${AUTH_TOKEN:-}
+      # Must match the value set on the frontend service (#49)
+      - INTERNAL_FORWARD_SECRET=${INTERNAL_FORWARD_SECRET:-}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GROK_API_KEY=${GROK_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - COHERE_API_KEY=${COHERE_API_KEY:-}
+      - VOYAGE_API_KEY=${VOYAGE_API_KEY:-}
+      - EXTERNAL_HOSTNAME=${EXTERNAL_HOSTNAME:-}
+      - DEBUG_MODE=${DEBUG_MODE:-false}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
+      - TIKA_URL=http://tika:9998
+      - TIKA_TIMEOUT=300000
+    volumes:
+      - ./data/uploads:/app/uploads # Persistent storage for uploaded files
+      - ./backend/app:/app/app # Live code reload for development
+      - ./backend/tests:/app/tests # Tests directory for development
+      - ./backend/alembic:/app/alembic # Alembic migrations
+      - ./backend/alembic.ini:/app/alembic.ini # Alembic config
+      - ./API.md:/app/API.md:ro # API documentation for /api-reference endpoint
+      - ./VERSION:/app/VERSION:ro # Version file
+    networks:
+      agentbase-network:
+        # Project-unique alias so nginx can target this service unambiguously,
+        # even when other compose stacks join the same network and register
+        # their own `backend` alias.
+        aliases:
+          - agentbase-backend
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+
+  # PostgreSQL Database
+  postgres:
+    restart: unless-stopped
+    image: postgres:15-alpine
+    ports:
+      - "${POSTGRES_PORT:-5434}:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-agentbase}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-agentbase_password_change_me}
+      - POSTGRES_DB=${POSTGRES_DB:-agentbase}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data # Bind mount for data persistence
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agentbase} -d ${POSTGRES_DB:-agentbase}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - agentbase-network
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+  # Apache Tika - Document text extraction service
+  tika:
+    image: apache/tika:latest
+    ports:
+      - "${TIKA_PORT:-9998}:9998"
+    networks:
+      - agentbase-network
+    restart: unless-stopped
+    environment:
+      # Cap the JVM heap so it doesn't compete with the 4 GiB tmpfs inside
+      # the 6 GiB memory cgroup. ~1 GiB heap is ample for Tika's extraction
+      # workloads; the rest of the cgroup is reserved for tmpfs + overhead.
+      - JAVA_OPTS=-Xms512m -Xmx1024m
+    # Cap /tmp at 4 GiB on a RAM-backed mount. Tika writes extraction scratch
+    # files (TIKA_streamstore_*, apache-tika-*) to /tmp and leaks them on
+    # crashed/aborted requests. Without this cap the container's writable
+    # layer grows unbounded inside Docker's VM disk image — previously
+    # accumulated 149 GB and was the dominant contributor to a host disk
+    # crisis. tmpfs is wiped on restart, so leaks self-heal.
+    tmpfs:
+      - /tmp:size=4G
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/localhost/9998"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        # 6 GiB = ~1 GiB JVM heap + up to 4 GiB tmpfs scratch + headroom.
+        # tmpfs usage counts against the container's memory cgroup, so the
+        # previous 1 GiB limit would OOM as /tmp filled.
+        limits:
+          memory: 6G
+
+  # Qdrant Vector Store (optional - use external if preferred)
+  # By default, connects to your existing Qdrant at localhost:6333
+  # Only start this if you need a separate instance: docker-compose --profile with-qdrant up
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "${QDRANT_PORT:-6335}:6333"
+      - "${QDRANT_GRPC_PORT:-6336}:6334"
+    volumes:
+      - ./data/qdrant:/qdrant/storage # Bind mount for data persistence
+    profiles:
+      - with-qdrant # Only start if explicitly requested
+    networks:
+      - agentbase-network
+
+networks:
+  agentbase-network:
+    driver: bridge

@@ -1,0 +1,72 @@
+"""SQLAlchemy models."""
+from app.models.models import (
+    Project,
+    ProviderConfig,
+    Source,
+    KnowledgeSource,  # backward-compatible alias for Source
+    IndexingLog,
+    DocumentContent,
+    ScrapedContent,  # backward-compatible alias for DocumentContent
+    ModelAssignment,
+    Prompt,
+    ProjectSource,
+    ProjectKnowledgeSource,  # backward-compatible alias for ProjectSource
+    Agent,
+    AgentSource,
+    AgentKnowledgeSource,  # backward-compatible alias for AgentSource
+    Experiment,
+    SourceMetadataSchema,
+    KnowledgeMetadataSchema,  # backward-compatible alias for SourceMetadataSchema
+    Job,
+    APIKey,
+    Taxonomy,
+    TaxonomyTerm,
+    TaxonomySuggestion,
+    Library,
+    KnowledgeBase,  # backward-compatible alias for Library
+    LibrarySource,
+    Document,
+    AgentLibrary,
+    AgentKnowledgeBase,  # backward-compatible alias for AgentLibrary
+    WatcherEvent,
+    QuestionSet,
+    Question,
+    EvalRun,
+    EvalResult,
+)
+
+__all__ = [
+    "Project",
+    "ProviderConfig",
+    "Source",
+    "KnowledgeSource",
+    "IndexingLog",
+    "DocumentContent",
+    "ScrapedContent",
+    "ModelAssignment",
+    "Prompt",
+    "ProjectSource",
+    "ProjectKnowledgeSource",
+    "Agent",
+    "AgentSource",
+    "AgentKnowledgeBase",
+    "Experiment",
+    "SourceMetadataSchema",
+    "KnowledgeMetadataSchema",
+    "Job",
+    "APIKey",
+    "Taxonomy",
+    "TaxonomyTerm",
+    "TaxonomySuggestion",
+    "Library",
+    "KnowledgeBase",
+    "LibrarySource",
+    "Document",
+    "AgentLibrary",
+    "AgentKnowledgeSource",
+    "WatcherEvent",
+    "QuestionSet",
+    "Question",
+    "EvalRun",
+    "EvalResult",
+]

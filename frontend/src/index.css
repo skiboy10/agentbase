@@ -1,0 +1,188 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@config "../tailwind.config.js";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 213 94% 19%;
+    --card: 0 0% 100%;
+    --card-foreground: 213 94% 19%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 213 94% 19%;
+    --primary: 205 98% 42%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 213 94% 19%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 210 100% 55%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 205 98% 42%;
+    --chart-1: 205 98% 42%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+    /* Status colors */
+    --status-success: 160 84% 39%;
+    --status-success-foreground: 160 84% 15%;
+    --status-warning: 38 92% 50%;
+    --status-warning-foreground: 38 92% 20%;
+    --status-info: 205 98% 42%;
+    --status-info-foreground: 205 98% 15%;
+    --status-error: 0 84% 60%;
+    --status-error-foreground: 0 84% 25%;
+    /* Source-type accents (categorical) — single hue each, used as a 15% tint + solid text.
+       Light values kept dark enough to clear WCAG AA (4.5:1) on the tinted background. */
+    --source-type-url: 217 91% 42%;
+    --source-type-directory: 263 70% 48%;
+    --source-type-file: 22 90% 38%;
+    --source-type-youtube: 0 74% 44%;
+    --source-type-collection: 192 90% 30%;
+    /* Categorical accent tokens — badge/chip colors for agent bindings, embedding
+       model indicators, source-hierarchy chips, and HTTP-method labels.
+       Light values dark enough to clear WCAG AA (4.5:1) on white or card backgrounds:
+       agent 9.07, embedding/post 5.65, subsource 6.07, root 5.75, global 6.63,
+       get 6.76, put 5.46, delete 5.96, patch 5.23. */
+    --cat-agent: 263 70% 42%;
+    --cat-embedding: 158 64% 28%;
+    --cat-enriched: 263 70% 42%;
+    --cat-subsource: 38 90% 28%;
+    --cat-root: 199 90% 32%;
+    --cat-global: 217 91% 42%;
+    --cat-http-get: 213 90% 38%;
+    --cat-http-post: 158 64% 28%;
+    --cat-http-put: 38 90% 30%;
+    --cat-http-delete: 0 74% 44%;
+    --cat-http-patch: 22 90% 38%;
+    /* API key scope badge tokens — light values clear WCAG AA on card background */
+    --cat-scope-read: 213 90% 38%;
+    --cat-scope-write: 38 90% 30%;
+    --cat-scope-admin: 0 74% 44%;
+    --radius: 0.5rem;
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+    --card: 222 47% 11%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 47% 11%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 205 98% 42%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 210 100% 55%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 205 98% 42%;
+    --chart-1: 210 100% 55%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+    /* Status colors */
+    --status-success: 160 60% 45%;
+    --status-success-foreground: 160 60% 90%;
+    --status-warning: 38 75% 55%;
+    --status-warning-foreground: 38 75% 90%;
+    --status-info: 210 100% 55%;
+    --status-info-foreground: 210 100% 90%;
+    --status-error: 0 62% 50%;
+    --status-error-foreground: 0 0% 98%;
+    /* Source-type accents (categorical) — lighter in dark for icon legibility on tinted bg */
+    --source-type-url: 213 94% 68%;
+    --source-type-directory: 271 91% 75%;
+    --source-type-file: 25 95% 62%;
+    --source-type-youtube: 0 84% 70%;
+    --source-type-collection: 188 86% 60%;
+    /* Categorical accent tokens — lighter in dark for legibility on dark card backgrounds */
+    --cat-agent: 271 91% 75%;
+    --cat-embedding: 158 60% 50%;
+    --cat-enriched: 271 91% 75%;
+    --cat-subsource: 43 96% 56%;
+    --cat-root: 199 89% 60%;
+    --cat-global: 213 94% 68%;
+    --cat-http-get: 213 94% 68%;
+    --cat-http-post: 158 60% 50%;
+    --cat-http-put: 38 80% 60%;
+    --cat-http-delete: 0 84% 70%;
+    --cat-http-patch: 25 95% 62%;
+    /* API key scope badge tokens — lighter in dark for legibility */
+    --cat-scope-read: 213 94% 68%;
+    --cat-scope-write: 38 80% 60%;
+    --cat-scope-admin: 0 84% 70%;
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(var(--muted));
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
+}
+
+/* Code block styling */
+pre {
+  @apply bg-muted rounded-lg p-4 overflow-x-auto;
+}
+
+code {
+  @apply font-mono text-sm;
+}
