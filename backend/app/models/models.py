@@ -559,9 +559,10 @@ class QuestionSet(Base):
 class Question(Base):
     """One golden test case. Statuses: draft | active | archived | stale.
 
-    Questions with EvalResults can only be archived, never deleted
-    (FK ondelete=RESTRICT on eval_results.question_id; service converts
-    delete -> archive)."""
+    Individually deleting a question that has EvalResults archives it
+    instead (service converts delete -> archive to preserve scorecard
+    history). Cascade deletes of a whole set or library remove questions
+    and their results together."""
     __tablename__ = "questions"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
@@ -578,7 +579,9 @@ class Question(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())
 
     question_set: Mapped["QuestionSet"] = relationship(back_populates="questions")
-    results: Mapped[list["EvalResult"]] = relationship(back_populates="question")
+    results: Mapped[list["EvalResult"]] = relationship(
+        back_populates="question", passive_deletes=True
+    )
 
 
 class EvalRun(Base):
@@ -615,7 +618,7 @@ class EvalResult(Base):
         String(36), ForeignKey("eval_runs.id", ondelete="CASCADE"), nullable=False, index=True
     )
     question_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("questions.id", ondelete="RESTRICT"), nullable=False, index=True
+        String(36), ForeignKey("questions.id", ondelete="CASCADE"), nullable=False, index=True
     )
     retrieved: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     retrieval_metrics: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
