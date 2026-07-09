@@ -72,8 +72,9 @@ class TestQuestionSetService:
         assert archived.status == "archived"
 
     async def test_delete_set_with_results_succeeds(self, db_session, library):
-        """Review fix: deleting a set with eval history must not trip the
-        RESTRICT FK on eval_results.question_id (runs are deleted first)."""
+        """Deleting a set with eval history deletes runs first so results
+        never outlive their questions (FK is CASCADE since rev d6e7f8a9b0c1,
+        but the ordering keeps this safe on not-yet-migrated databases)."""
         svc = QuestionSetService(db_session)
         qs = await svc.create_set(library_id=library.id, name="Core")
         q = await svc.add_question(question_set_id=qs.id, question_text="Q?")

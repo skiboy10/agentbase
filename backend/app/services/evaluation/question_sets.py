@@ -51,9 +51,9 @@ class QuestionSetService:
         qs = await self.db.get(QuestionSet, set_id)
         if not qs:
             return False
-        # Delete the set's runs first (cascades their results). Otherwise the
-        # ORM cascades question deletion before run deletion and trips the
-        # RESTRICT FK on eval_results.question_id.
+        # Delete the set's runs first (cascades their results) so eval_results
+        # never outlive their questions, keeping this safe on databases that
+        # predate the CASCADE FK on eval_results.question_id (rev d6e7f8a9b0c1).
         runs = (await self.db.execute(
             select(EvalRun).where(EvalRun.question_set_id == set_id)
         )).scalars().all()
