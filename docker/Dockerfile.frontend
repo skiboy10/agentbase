@@ -15,10 +15,6 @@ RUN npm install
 # Copy frontend source code
 COPY frontend/ ./
 
-# Copy extensions for frontend builds
-# Note: frontend/extensions/ symlinks are excluded via .dockerignore
-COPY extensions/ ./extensions/
-
 # Build the application
 RUN npm run build
 
