@@ -100,8 +100,11 @@ else
     sed -i 's/^BACKEND_PORT=.*/BACKEND_PORT=8099/' .env
     sed -i 's/^POSTGRES_PORT=.*/POSTGRES_PORT=5499/' .env
 fi
+# Not in .env.example; docker-compose.yml defaults it to 9998, which
+# collides with a dev stack running on the same machine
+echo "TIKA_PORT=9099" >> .env
 
-echo "  ✓ Environment configured with test ports (3099, 8099, 5499)"
+echo "  ✓ Environment configured with test ports (3099, 8099, 5499, 9099)"
 
 # Step 4: Build containers
 echo "[4/6] Building Docker containers..."
