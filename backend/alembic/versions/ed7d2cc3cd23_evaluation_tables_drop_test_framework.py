@@ -20,11 +20,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # Dead test framework — never had a UI; rows (if any) are dev artifacts.
-    # Dropped unconditionally; documented in release notes per design doc §10.
-    op.drop_table('test_case_results')
-    op.drop_table('test_runs')
-    op.drop_table('test_cases')
-    op.drop_table('test_suites')
+    # IF EXISTS: these extension-era tables never exist on fresh installs (#17).
+    op.execute('DROP TABLE IF EXISTS test_case_results')
+    op.execute('DROP TABLE IF EXISTS test_runs')
+    op.execute('DROP TABLE IF EXISTS test_cases')
+    op.execute('DROP TABLE IF EXISTS test_suites')
 
     op.create_table(
         'question_sets',

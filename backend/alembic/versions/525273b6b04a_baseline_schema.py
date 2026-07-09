@@ -10,6 +10,13 @@ For NEW databases: this migration creates all core tables.
 
 Tables managed by extensions (migration_*, test_*, conversations, etc.)
 are NOT included here — extensions manage their own schemas.
+
+Exception (#17): knowledge_bases, documents, agent_knowledge_bases, and
+knowledge_sources.knowledge_base_id originated in the (since removed)
+knowledge-base extension, so no migration created them — yet later core
+migrations (909d4f0919fd, c4d5e6f7a8b9) alter/rename them. They are created
+here in their pre-rename shape, with PostgreSQL default constraint names,
+so the rename migration's RENAME CONSTRAINT statements match.
 """
 from typing import Sequence, Union
 
@@ -51,10 +58,31 @@ def upgrade() -> None:
         sa.Column('updated_at', sa.DateTime(), nullable=True),
     )
 
+    # Knowledge bases (renamed to libraries in c4d5e6f7a8b9)
+    op.create_table('knowledge_bases',
+        sa.Column('id', sa.String(36), primary_key=True),
+        sa.Column('name', sa.String(255), nullable=False),
+        sa.Column('description', sa.Text(), nullable=True),
+        sa.Column('project_id', sa.String(36), sa.ForeignKey('projects.id', ondelete='SET NULL'), nullable=True),
+        sa.Column('collection_name', sa.String(255), unique=True, nullable=False),
+        sa.Column('embedding_provider', sa.String(100), nullable=False),
+        sa.Column('embedding_model', sa.String(100), nullable=False),
+        sa.Column('embedding_dimensions', sa.Integer(), nullable=True),
+        sa.Column('taxonomy_id', sa.String(36), nullable=True),
+        sa.Column('enrichment_model', sa.String(100), nullable=True),
+        sa.Column('source_count', sa.Integer(), server_default='0'),
+        sa.Column('document_count', sa.Integer(), server_default='0'),
+        sa.Column('chunk_count', sa.Integer(), server_default='0'),
+        sa.Column('status', sa.String(20), server_default='active'),
+        sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()')),
+        sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()')),
+    )
+
     # Knowledge sources
     op.create_table('knowledge_sources',
         sa.Column('id', sa.String(36), primary_key=True),
         sa.Column('project_id', sa.String(36), sa.ForeignKey('projects.id'), nullable=True),
+        sa.Column('knowledge_base_id', sa.String(36), sa.ForeignKey('knowledge_bases.id', ondelete='SET NULL'), nullable=True),
         sa.Column('name', sa.String(255), nullable=False),
         sa.Column('description', sa.Text(), nullable=True),
         sa.Column('source_type', sa.String(20), nullable=False),
@@ -151,15 +179,6 @@ def upgrade() -> None:
         sa.UniqueConstraint('project_id', 'source_id', name='uq_project_knowledge_source'),
     )
 
-    # Project-agent junction
-    op.create_table('project_agents',
-        sa.Column('id', sa.String(36), primary_key=True),
-        sa.Column('project_id', sa.String(36), sa.ForeignKey('projects.id', ondelete='CASCADE'), nullable=False),
-        sa.Column('agent_id', sa.String(36), sa.ForeignKey('agents.id', ondelete='CASCADE'), nullable=False),
-        sa.Column('assigned_at', sa.DateTime(), nullable=True),
-        sa.UniqueConstraint('project_id', 'agent_id', name='uq_project_agent'),
-    )
-
     # Agents
     op.create_table('agents',
         sa.Column('id', sa.String(36), primary_key=True),
@@ -180,6 +199,15 @@ def upgrade() -> None:
         sa.Column('updated_at', sa.DateTime(), nullable=True),
     )
 
+    # Project-agent junction (must come after agents — FK dependency, #17)
+    op.create_table('project_agents',
+        sa.Column('id', sa.String(36), primary_key=True),
+        sa.Column('project_id', sa.String(36), sa.ForeignKey('projects.id', ondelete='CASCADE'), nullable=False),
+        sa.Column('agent_id', sa.String(36), sa.ForeignKey('agents.id', ondelete='CASCADE'), nullable=False),
+        sa.Column('assigned_at', sa.DateTime(), nullable=True),
+        sa.UniqueConstraint('project_id', 'agent_id', name='uq_project_agent'),
+    )
+
     # Agent-knowledge junction
     op.create_table('agent_knowledge_sources',
         sa.Column('id', sa.String(36), primary_key=True),
@@ -187,6 +215,39 @@ def upgrade() -> None:
         sa.Column('knowledge_source_id', sa.String(36), sa.ForeignKey('knowledge_sources.id', ondelete='CASCADE'), nullable=False),
         sa.Column('assigned_at', sa.DateTime(), nullable=True),
         sa.UniqueConstraint('agent_id', 'knowledge_source_id', name='uq_agent_knowledge_source'),
+    )
+
+    # Agent-knowledge-base junction (renamed to agent_libraries in c4d5e6f7a8b9;
+    # unique constraint left unnamed so PG assigns the default name that
+    # migration renames)
+    op.create_table('agent_knowledge_bases',
+        sa.Column('id', sa.String(36), primary_key=True),
+        sa.Column('agent_id', sa.String(36), sa.ForeignKey('agents.id', ondelete='CASCADE'), nullable=False),
+        sa.Column('knowledge_base_id', sa.String(36), sa.ForeignKey('knowledge_bases.id', ondelete='CASCADE'), nullable=False),
+        sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()')),
+        sa.UniqueConstraint('agent_id', 'knowledge_base_id'),
+    )
+
+    # Documents (per-KB document registry; knowledge_base_id renamed to
+    # library_id in c4d5e6f7a8b9; unique constraint left unnamed — see above)
+    op.create_table('documents',
+        sa.Column('id', sa.String(36), primary_key=True),
+        sa.Column('knowledge_base_id', sa.String(36), sa.ForeignKey('knowledge_bases.id', ondelete='CASCADE'), nullable=False),
+        sa.Column('source_id', sa.String(36), sa.ForeignKey('knowledge_sources.id', ondelete='CASCADE'), nullable=False),
+        sa.Column('document_id', sa.String(200), nullable=False),
+        sa.Column('title', sa.String(500), nullable=True),
+        sa.Column('file_path', sa.Text(), nullable=True),
+        sa.Column('url', sa.Text(), nullable=True),
+        sa.Column('file_type', sa.String(20), nullable=True),
+        sa.Column('full_text', sa.Text(), nullable=True),
+        sa.Column('text_length', sa.Integer(), server_default='0'),
+        sa.Column('content_hash', sa.String(64), nullable=True),
+        sa.Column('document_type', sa.String(50), nullable=True),
+        sa.Column('chunk_count', sa.Integer(), server_default='0'),
+        sa.Column('status', sa.String(20), server_default='pending'),
+        sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()')),
+        sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()')),
+        sa.UniqueConstraint('knowledge_base_id', 'document_id'),
     )
 
     # Experimental indexes
@@ -212,9 +273,11 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_table('experimental_indexes')
+    op.drop_table('documents')
+    op.drop_table('agent_knowledge_bases')
     op.drop_table('agent_knowledge_sources')
-    op.drop_table('agents')
     op.drop_table('project_agents')
+    op.drop_table('agents')
     op.drop_table('project_knowledge_sources')
     op.drop_table('prompts')
     op.drop_index('ix_model_assignment_task_global', table_name='model_assignments')
@@ -222,5 +285,6 @@ def downgrade() -> None:
     op.drop_table('scraped_contents')
     op.drop_table('indexing_logs')
     op.drop_table('knowledge_sources')
+    op.drop_table('knowledge_bases')
     op.drop_table('provider_configs')
     op.drop_table('projects')
