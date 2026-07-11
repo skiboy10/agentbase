@@ -19,10 +19,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+from app.core.auth import is_external_request
 from app.core.database import get_db
 from app.services.agent_service import AgentService
 from app.services.agent_query import AgentQueryService
-from .dependencies import is_external_request
 from .schemas import AgentQueryRequest, AgentQueryResponse, AgentQuerySourceItem
 
 router = APIRouter()
