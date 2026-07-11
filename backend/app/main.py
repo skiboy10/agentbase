@@ -12,6 +12,7 @@ __version__ = next((f.read_text().strip() for f in _version_candidates if f.exis
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import HTTPConnection
 from starlette.responses import Response
 from app.middleware.proxy_secret import SecretGatedProxyHeadersMiddleware
 from fastapi.responses import JSONResponse
@@ -431,8 +432,10 @@ class _MCPAuthWrapper:
 
     async def __call__(self, scope, receive, send):
         ctx_token = None
-        if scope["type"] == "http":
-            req = Request(scope)
+        if scope["type"] in ("http", "websocket"):
+            # HTTPConnection covers both HTTP requests and WebSocket
+            # handshakes — the gate must not be bypassable via an Upgrade.
+            req = HTTPConnection(scope)
             headers = dict(req.headers)
             auth_header = headers.get("authorization", "")
             has_bearer = auth_header.startswith("Bearer ")
@@ -466,7 +469,15 @@ class _MCPAuthWrapper:
                     # External without a valid key: reject at the connection
                     # level, mirroring require_scope() for REST routes.
                     logger.warning("Unauthenticated external MCP request rejected",
-                                   path=req.url.path)
+                                   path=req.url.path,
+                                   client_ip=req.client.host if req.client else None,
+                                   forwarded_for=headers.get("x-forwarded-for"))
+                    if scope["type"] == "websocket":
+                        # Consume the connect event, then close before
+                        # accepting — uvicorn surfaces this as HTTP 403.
+                        await receive()
+                        await send({"type": "websocket.close", "code": 1008})
+                        return
                     response = JSONResponse(
                         status_code=401,
                         content={"detail": "API key required"},

@@ -253,6 +253,117 @@ async def test_auth_context_reset_after_request(monkeypatch, stubbed_validation)
 
 
 @pytest.mark.asyncio
+async def test_tunnel_style_request_rejected_end_to_end(monkeypatch):
+    """Integration of the gate with the REAL _is_external_request: a request
+    from a trusted bridge-gateway IP that carries X-Forwarded-For (i.e.
+    tunnel-proxied) must be rejected without a key."""
+    class _Settings:
+        external_hostname = "tunnel.example.com"
+        auth_token = None
+        trusted_networks = "127.0.0.1/32,192.168.0.0/16,172.16.0.0/12"
+        trust_proxy = False
+
+    import app.core.auth as core_auth
+    monkeypatch.setattr(core_auth, "get_settings", lambda: _Settings())
+    monkeypatch.setattr(app_main, "get_settings", lambda: _Settings())
+    wrapper, inner = _make_wrapper()
+    send = _SendCollector()
+
+    scope = _http_scope(headers={
+        "Host": "tunnel.example.com",
+        "X-Forwarded-For": "203.0.113.9",
+    })
+    scope["client"] = ("172.17.0.1", 51234)  # Docker bridge gateway: trusted
+    await wrapper(scope, _receive, send)
+
+    assert send.status == 401
+    assert not inner.called
+
+    # ...while a direct localhost client (same source IP, no forwarding
+    # headers) still passes without a key.
+    send2 = _SendCollector()
+    scope2 = _http_scope(headers={"Host": "localhost:8002"})
+    scope2["client"] = ("172.17.0.1", 51235)
+    await wrapper(scope2, _receive, send2)
+    assert send2.status == 200
+    assert inner.called
+
+
+@pytest.mark.asyncio
+async def test_rejection_log_includes_client_ip(monkeypatch):
+    """The 401 log line must carry the TCP peer IP and the forwarded chain.
+
+    In production the peer is the Docker bridge gateway and the real client
+    only appears in X-Forwarded-For, so both must be logged."""
+    monkeypatch.setattr(app_main, "_is_external_request", lambda req: True)
+    captured = {}
+
+    def _warning(msg, **kwargs):
+        captured["msg"] = msg
+        captured.update(kwargs)
+
+    monkeypatch.setattr(app_main.logger, "warning", _warning)
+    wrapper, inner = _make_wrapper()
+    send = _SendCollector()
+
+    scope = _http_scope(headers={"X-Forwarded-For": "203.0.113.9"})
+    scope["client"] = ("172.17.0.1", 51234)  # bridge gateway peer
+    await wrapper(scope, _receive, send)
+
+    assert send.status == 401
+    assert captured.get("client_ip") == "172.17.0.1"
+    assert captured.get("forwarded_for") == "203.0.113.9"
+    assert captured.get("path") == "/mcp/"
+
+
+@pytest.mark.asyncio
+async def test_external_websocket_without_key_rejected(monkeypatch):
+    """WebSocket upgrades must not bypass the connection-level gate."""
+    monkeypatch.setattr(app_main, "_is_external_request", lambda req: True)
+    wrapper, inner = _make_wrapper()
+    sent = []
+
+    async def _send(message):
+        sent.append(message)
+
+    ws_scope = _http_scope()
+    ws_scope["type"] = "websocket"
+    ws_scope["scheme"] = "ws"
+    del ws_scope["method"]
+
+    async def _ws_receive():
+        return {"type": "websocket.connect"}
+
+    await wrapper(ws_scope, _ws_receive, _send)
+
+    assert not inner.called, "inner app must not see unauthenticated websockets"
+    assert sent and sent[0]["type"] == "websocket.close"
+
+
+@pytest.mark.asyncio
+async def test_internal_websocket_passes(monkeypatch):
+    """Internal websocket connections keep working (full-access sentinel)."""
+    monkeypatch.setattr(app_main, "_is_external_request", lambda req: False)
+    wrapper, inner = _make_wrapper()
+
+    ws_scope = _http_scope()
+    ws_scope["type"] = "websocket"
+    ws_scope["scheme"] = "ws"
+    del ws_scope["method"]
+
+    async def _ws_receive():
+        return {"type": "websocket.connect"}
+
+    async def _send(message):
+        pass
+
+    await wrapper(ws_scope, _ws_receive, _send)
+
+    assert inner.called
+    assert inner.seen_auth == AUTH_TOKEN_SENTINEL
+
+
+@pytest.mark.asyncio
 async def test_non_http_scope_passes_through(monkeypatch):
     """Lifespan/websocket scopes are not gated (no Request parsing)."""
     # Would blow up if the wrapper tried to inspect this as HTTP

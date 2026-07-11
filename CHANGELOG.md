@@ -24,6 +24,25 @@ All notable changes to Agentbase are documented here.
 
 ## [Unreleased]
 
+### Security
+- **Tunnel-proxied requests now require an API key.** Tunnels that terminate
+  on the Docker host (e.g. Cloudflare Tunnel, mesh-VPN funnels) deliver
+  traffic to the backend from a host-local source IP, which the
+  `TRUSTED_NETWORKS` check treated as internal — leaving `/mcp` and the REST
+  API open to unauthenticated public requests. `_is_external_request` now
+  classifies any request carrying forwarding headers (`X-Forwarded-For`,
+  `Forwarded`, `X-Forwarded-Host/Proto`) as external unless the proxy
+  authenticated itself via `INTERNAL_FORWARD_SECRET`. Direct localhost/LAN
+  clients are unaffected (they never send forwarding headers, and sending
+  one can only downgrade trust, so the check cannot be spoofed into access).
+  **Migration:** clients connecting through a tunnel must now send
+  `Authorization: Bearer <platform-api-key>` — create a key via
+  `POST /api/auth/keys` from the local network.
+- The MCP connection gate now also covers WebSocket handshakes, which
+  previously bypassed the connection-level auth check entirely.
+- The MCP 401 rejection log now includes the resolved client IP and
+  `X-Forwarded-For` chain for easier debugging.
+
 ### Added
 - **Sitemap Auto-Discovery**: URL sources now automatically discover sitemaps by checking `robots.txt` and common locations (`/sitemap.xml`, `/sitemap-1.xml`, etc.)
 - **Three URL scanning modes**: Auto-Discover (default), Crawl Links, Manual Sitemap

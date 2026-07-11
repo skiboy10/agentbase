@@ -24,6 +24,9 @@ def _build_app(secret):
         return JSONResponse({
             "client_host": request.client.host if request.client else None,
             "scheme": request.url.scheme,
+            "proxy_headers_trusted": bool(
+                request.scope.get("state", {}).get("proxy_headers_trusted")
+            ),
         })
 
     app = Starlette(routes=[Route("/echo", echo)])
@@ -112,6 +115,28 @@ def test_unequal_length_secret_does_not_crash():
     )
     assert resp.status_code == 200
     assert resp.json()["client_host"] != "1.2.3.4"
+
+
+def test_secret_match_sets_proxy_headers_trusted_flag():
+    """_is_external_request uses this flag to skip the forwarding-header
+    check for traffic validated by the shared secret."""
+    app = _build_app(secret="topsecret")
+    client = TestClient(app)
+    resp = client.get(
+        "/echo",
+        headers={
+            "X-Forwarded-For": "1.2.3.4",
+            "X-Internal-Forward-Secret": "topsecret",
+        },
+    )
+    assert resp.json()["proxy_headers_trusted"] is True
+
+
+def test_secret_missing_leaves_flag_unset():
+    app = _build_app(secret="topsecret")
+    client = TestClient(app)
+    resp = client.get("/echo", headers={"X-Forwarded-For": "1.2.3.4"})
+    assert resp.json()["proxy_headers_trusted"] is False
 
 
 def test_xff_chain_takes_leftmost():

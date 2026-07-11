@@ -56,6 +56,12 @@ class SecretGatedProxyHeadersMiddleware:
         if not hmac.compare_digest(presented, self._secret_bytes):
             return await self.app(scope, receive, send)
 
+        # Tell downstream auth checks the forwarding headers on this request
+        # came from our own proxy: _is_external_request() skips its
+        # proxied-without-secret rejection and decides on the rewritten
+        # client IP instead.
+        scope.setdefault("state", {})["proxy_headers_trusted"] = True
+
         if b"x-forwarded-proto" in headers:
             xfp = headers[b"x-forwarded-proto"].decode("latin-1").strip().lower()
             if xfp in _VALID_SCHEMES:
