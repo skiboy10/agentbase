@@ -189,6 +189,17 @@ def _is_external_request(request: Request) -> bool:
     return True  # Not in any trusted range → external
 
 
+def is_external_request(request: Request) -> bool:
+    """
+    Public wrapper around the IP-based external-request check.
+
+    Use this for endpoint-level internal/external gating. Never gate on the
+    Host or X-Forwarded-Host header — those are client-controlled and the
+    external tunnel forwards them verbatim, so they are trivially spoofable.
+    """
+    return _is_external_request(request)
+
+
 async def get_api_key_from_request(
     request: Request,
     db: AsyncSession = Depends(get_db),

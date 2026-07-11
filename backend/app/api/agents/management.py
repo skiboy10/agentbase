@@ -13,7 +13,7 @@ from app.core.database import get_db
 from app.models import APIKey
 from app.services import AgentService
 from .schemas import AgentDuplicate, AgentResponse
-from .dependencies import is_external_request
+from app.core.auth import is_external_request
 from .helpers import agent_to_response
 
 router = APIRouter()
