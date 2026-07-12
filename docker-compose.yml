@@ -76,6 +76,7 @@ services:
       - ./backend/alembic.ini:/app/alembic.ini # Alembic config
       - ./API.md:/app/API.md:ro # API documentation for /api-reference endpoint
       - ./VERSION:/app/VERSION:ro # Version file
+      - ./.claude/skills:/app/.claude/skills:ro # Agent skills for /api/skills endpoint
     networks:
       agentbase-network:
         # Project-unique alias so nginx can target this service unambiguously,
