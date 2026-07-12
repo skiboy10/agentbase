@@ -185,6 +185,7 @@ class DirectoryIndexer(BaseIndexer):
                 # Enrichment: text cleaning + classification
                 classification_payload = {}
                 doc_type = "standard"
+                enrichment_fields: dict = {}
                 if enrich_cfg.enabled or enrich_cfg.document_type_detection:
                     enrich_result = await self._enrichment_service.enrich(
                         text=content,
@@ -196,6 +197,12 @@ class DirectoryIndexer(BaseIndexer):
                     doc_type = enrich_result["document_type"]
                     if enrich_result.get("classification"):
                         classification_payload = enrich_result["classification"]
+                        enrichment_fields = {
+                            "classification": classification_payload,
+                            "classification_method": enrich_result.get("classification_method"),
+                            "taxonomy_id": enrich_result.get("taxonomy_id"),
+                            "classification_taxonomy_version": enrich_result.get("taxonomy_version"),
+                        }
 
                 # Split and prepare chunks
                 chunks = text_splitter.split_text(content)
@@ -256,6 +263,20 @@ class DirectoryIndexer(BaseIndexer):
                         await self.db.commit()
                         batch_chunks = []
                         batch_metadata = []
+
+                # Persist per-source DocumentContent (raw text + classification)
+                # so re-embedding and taxonomy coverage analytics work. Keyed by
+                # absolute path — the same key the directory watcher uses.
+                await self._save_scraped_content(
+                    source=source,
+                    url=str(file_path),
+                    title=file_path.stem,
+                    content=content,
+                    file_path=str(file_path),
+                    file_type=ext.lstrip("."),
+                    document_type=doc_type,
+                    **enrichment_fields,
+                )
 
                 # KB-aware: create/update Document records for every library
                 # this source belongs to (one row per library).

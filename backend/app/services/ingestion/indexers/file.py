@@ -136,6 +136,7 @@ class FileIndexer(BaseIndexer):
                 # --- Enrichment: text cleaning + classification ---
                 classification_payload: dict = {}
                 doc_type = "standard"
+                enrichment_fields: dict = {}
                 enrich_cfg = self._build_enrichment_config(source)
                 if enrich_cfg.enabled or enrich_cfg.document_type_detection:
                     enrich_result = await self._enrichment_service.enrich(
@@ -148,6 +149,12 @@ class FileIndexer(BaseIndexer):
                     doc_type = enrich_result["document_type"]
                     if enrich_result.get("classification"):
                         classification_payload = enrich_result["classification"]
+                        enrichment_fields = {
+                            "classification": classification_payload,
+                            "classification_method": enrich_result.get("classification_method"),
+                            "taxonomy_id": enrich_result.get("taxonomy_id"),
+                            "classification_taxonomy_version": enrich_result.get("taxonomy_version"),
+                        }
 
                 # Split text into chunks
                 chunks = text_splitter.split_text(file_text)
@@ -222,6 +229,19 @@ class FileIndexer(BaseIndexer):
 
                 total_chunks += file_chunk_count
                 successful_files += 1
+
+                # Persist per-source DocumentContent (raw text + classification)
+                # so re-embedding and taxonomy coverage analytics work.
+                await self._save_scraped_content(
+                    source=source,
+                    url=file_path,
+                    title=title,
+                    content=file_text,
+                    file_path=file_path,
+                    file_type=ext.lstrip("."),
+                    document_type=doc_type,
+                    **enrichment_fields,
+                )
 
                 # KB-aware: upsert one Document per library this source is bound to
                 if kb_aware and document_id:
@@ -391,6 +411,7 @@ class FileIndexer(BaseIndexer):
                 # --- Enrichment ---
                 classification_payload: dict = {}
                 doc_type = "standard"
+                enrichment_fields: dict = {}
                 enrich_cfg = self._build_enrichment_config(source)
                 if enrich_cfg.enabled or enrich_cfg.document_type_detection:
                     enrich_result = await self._enrichment_service.enrich(
@@ -403,6 +424,12 @@ class FileIndexer(BaseIndexer):
                     doc_type = enrich_result["document_type"]
                     if enrich_result.get("classification"):
                         classification_payload = enrich_result["classification"]
+                        enrichment_fields = {
+                            "classification": classification_payload,
+                            "classification_method": enrich_result.get("classification_method"),
+                            "taxonomy_id": enrich_result.get("taxonomy_id"),
+                            "classification_taxonomy_version": enrich_result.get("taxonomy_version"),
+                        }
 
                 new_pages += file_pages
                 chunks = text_splitter.split_text(file_text)
@@ -454,6 +481,19 @@ class FileIndexer(BaseIndexer):
 
                 new_chunks += file_chunk_count
                 successful_files += 1
+
+                # Persist per-source DocumentContent (raw text + classification)
+                # so re-embedding and taxonomy coverage analytics work.
+                await self._save_scraped_content(
+                    source=source,
+                    url=file_path,
+                    title=title,
+                    content=file_text,
+                    file_path=file_path,
+                    file_type=ext.lstrip("."),
+                    document_type=doc_type,
+                    **enrichment_fields,
+                )
 
                 # KB-aware: upsert Document for every bound library
                 if kb_aware and document_id:

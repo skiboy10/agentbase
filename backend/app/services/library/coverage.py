@@ -13,6 +13,7 @@ import structlog
 
 from app.models import Library, Source, TaxonomyTerm
 from app.services.ingestion.qdrant_client import get_qdrant_client
+from app.services.taxonomy.facets import facet_to_classification_key
 
 logger = structlog.get_logger()
 
@@ -70,15 +71,8 @@ def _scroll_collection_metadata(client, collection_name: str) -> list[dict]:
 
 
 def _facet_to_metadata_key(facet: str) -> str:
-    """Convert a taxonomy facet name to the metadata key used by the enrichment pipeline.
-
-    The enrichment pipeline stores classifications under "{facet}s"
-    (e.g. "Content Type" → "Content Types", "Task" → "Tasks").
-    Special case: "doc_categories" → "doc_category".
-    """
-    if facet == "doc_categories":
-        return "doc_category"
-    return f"{facet}s"
+    """Convert a taxonomy facet name to the metadata key used by the enrichment pipeline."""
+    return facet_to_classification_key(facet)
 
 
 async def get_library_coverage(
