@@ -26,7 +26,7 @@ from sqlalchemy import select
 from app.core.config import get_settings
 from app.core.database import init_db, async_session_maker
 from app.core.encryption import decrypt_if_encrypted
-from app.api import projects, providers, sources, prompts, agents, config, events, docs, jobs, metadata, auth, experiments
+from app.api import projects, providers, sources, prompts, agents, config, events, docs, jobs, metadata, auth, experiments, skills
 from app.api import taxonomy as taxonomy_api
 from app.api import library
 from app.api import evaluation
@@ -399,6 +399,7 @@ app.include_router(agents.router, prefix="/api", tags=["Agents"])
 app.include_router(config.router, prefix="/api/config", tags=["Config"])
 app.include_router(events.router, prefix="/api", tags=["Events"])
 app.include_router(docs.router, prefix="/api/docs", tags=["Documentation"])
+app.include_router(skills.router, prefix="/api/skills", tags=["Skills"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["Jobs"])
 app.include_router(metadata.router, prefix="/api/metadata", tags=["Metadata"])
 app.include_router(auth.router, prefix="/api", tags=["Auth"])

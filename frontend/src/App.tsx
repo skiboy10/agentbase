@@ -17,6 +17,7 @@ import TaxonomyDetailPage from './pages/TaxonomyDetailPage'
 import AgentQueryPage from './pages/AgentQueryPage'
 import PromptStudioPage from './pages/PromptStudioPage'
 import QuickstartPage from './pages/QuickstartPage'
+import SkillsPage from './pages/SkillsPage'
 import { Toaster } from './components/ui/toaster'
 
 function App() {
@@ -42,6 +43,7 @@ function App() {
             <Route path="api-reference" element={<APIReferencePage />} />
             <Route path="keys" element={<APIKeysPage />} />
             <Route path="quickstart" element={<QuickstartPage />} />
+            <Route path="skills" element={<SkillsPage />} />
             {/* Backward compat redirects */}
             <Route path="knowledge" element={<Navigate to="/sources" replace />} />
             <Route path="knowledge-bases" element={<Navigate to="/libraries" replace />} />

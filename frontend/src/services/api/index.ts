@@ -23,6 +23,8 @@ export { libraryApi } from './library';
 export { evaluationApi } from './evaluation';
 export { jobsApi } from './jobs';
 export { testsApi } from './tests';
+export { skillsApi } from './skills';
+export type { SkillSummary, SkillDetail } from './skills';
 
 // Re-export all types for backward compatibility
 export type {

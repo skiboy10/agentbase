@@ -26,6 +26,7 @@ Agentbase exposes a RESTful API for source and library management, agent configu
 | Taxonomy | `/api/taxonomies` | Classification taxonomies and term management |
 | Libraries | `/api` | Curated document collections (Libraries) |
 | Docs | `/api/docs` | API reference documentation |
+| Skills | `/api/skills` | Agent skills catalog + zip download |
 
 **MCP Server:** An MCP (Model Context Protocol) server is mounted at `/mcp` providing 84 tools across 12 domains (Auth, Projects, Agents, Libraries, Sources, Source Ops, Source Docs, Source Upload, Taxonomy, Evaluation, Guide, Discovery). All tool names carry the `agentbase_` service prefix (e.g. `agentbase_search_sources`, `agentbase_create_library`) to prevent collisions in multi-server environments. See [ARCHITECTURE.md](./ARCHITECTURE.md) for details, and the README's "Connecting AI Agents (MCP)" section for connection setup.
 
@@ -2390,6 +2391,60 @@ GET /api/docs/api-reference
 Returns the raw markdown content of this API specification. Used by the frontend API Reference page to render documentation.
 
 **Response:** `text/markdown` - Raw markdown content of `API.md`
+
+---
+
+## Skills Service
+
+Read-only catalog of the Claude Code / agent skills bundled with this instance
+under `.claude/skills/`. Powers the Reference → Agent Skills page, where users
+browse, preview, and download a skill for install.
+
+### List Skills
+
+```
+GET /api/skills
+```
+
+Lists every bundled skill with metadata parsed from its `SKILL.md` frontmatter.
+
+**Response:** `application/json`
+
+```json
+{
+  "skills": [
+    {
+      "slug": "knowledge-librarian",
+      "name": "knowledge-librarian",
+      "description": "Autonomous domain-knowledge curation for Agentbase...",
+      "files": ["SKILL.md", "recipes/build-library.md"],
+      "file_count": 9,
+      "size_bytes": 22474
+    }
+  ]
+}
+```
+
+### Get Skill
+
+```
+GET /api/skills/{slug}
+```
+
+Returns a single skill's metadata plus the raw `SKILL.md` content (`readme`) for
+preview. Returns `404` if the slug doesn't match a bundled skill.
+
+### Download Skill Archive
+
+```
+GET /api/skills/{slug}/archive
+```
+
+Streams a `.zip` of the skill directory, folder-prefixed (`{slug}/SKILL.md`, ...)
+so it unpacks directly into a `.claude/skills/` directory. Returns `404` for an
+unknown slug.
+
+**Response:** `application/zip` (`Content-Disposition: attachment; filename="{slug}.zip"`)
 
 ---
 
