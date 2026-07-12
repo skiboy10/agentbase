@@ -145,6 +145,31 @@ def _get_client_ip(request: Request, settings) -> str:
     return "127.0.0.1"  # Safe default: treat as trusted if we cannot determine
 
 
+# Headers that mean a reverse proxy (or a client pretending to be one) sits
+# between the real client and the backend. Every reverse proxy in common
+# tunnel setups sets X-Forwarded-For, and host-terminating tunnel proxies
+# replace any client-supplied value with the real peer address — so tunnel
+# traffic can never arrive without it and external clients cannot strip it.
+# Direct localhost/LAN clients never send any of these; sending one can only
+# downgrade their trust, so there is no spoofing route INTO trust.
+_FORWARDING_HEADERS = (
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-forwarded-proto",
+    "forwarded",
+)
+
+
+def _is_proxied_without_secret(request: Request) -> bool:
+    """True when the request carries forwarding headers that were NOT
+    validated by SecretGatedProxyHeadersMiddleware (which sets the
+    proxy_headers_trusted scope flag and rewrites request.client, letting
+    the normal source-IP check decide)."""
+    if request.scope.get("state", {}).get("proxy_headers_trusted"):
+        return False
+    return any(header in request.headers for header in _FORWARDING_HEADERS)
+
+
 def _is_external_request(request: Request) -> bool:
     """
     Determine whether a request originates from outside the trusted network.
@@ -160,6 +185,13 @@ def _is_external_request(request: Request) -> bool:
     The Host header is trivially spoofable (any client can send
     "Host: localhost") whereas the TCP source address cannot be forged for a
     connection that actually reaches the server.
+
+    Source IP alone cannot see through tunnels that terminate on the Docker
+    host (e.g. Cloudflare Tunnel or a mesh-VPN funnel): their traffic
+    reaches the backend from the bridge gateway, the same trusted source IP
+    localhost clients present. Proxied traffic is therefore detected by its
+    forwarding headers and treated as external unless the proxy
+    authenticated itself via the forward secret.
     """
     settings = get_settings()
 
@@ -167,6 +199,13 @@ def _is_external_request(request: Request) -> bool:
     # configured, there is no external surface to protect.
     if not settings.external_hostname and not settings.auth_token:
         return False
+
+    # Tunnel-proxied traffic (identified by forwarding headers without the
+    # forward secret) is external regardless of its host-local source IP.
+    # TRUST_PROXY deployments explicitly trust their proxy chain instead:
+    # there the leftmost X-Forwarded-For IP feeds the check below.
+    if not settings.trust_proxy and _is_proxied_without_secret(request):
+        return True
 
     client_ip = _get_client_ip(request, settings)
 
