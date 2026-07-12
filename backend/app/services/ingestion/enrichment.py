@@ -134,6 +134,10 @@ class EnrichmentService:
             result["classification_method"] = "keyword"
 
         result["classification"] = classification
+        # Persisted alongside the classification so coverage analytics and
+        # stale detection can attribute documents to a taxonomy version.
+        result["taxonomy_id"] = taxonomy.id
+        result["taxonomy_version"] = taxonomy.version
         return result
 
     # ------------------------------------------------------------------ #

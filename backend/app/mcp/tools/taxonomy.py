@@ -378,7 +378,7 @@ async def agentbase_reject_taxonomy_suggestion(
 # ============================================================
 
 @mcp.tool(
-    description="Get classification coverage for a taxonomy — documents classified vs total, source count.",
+    description="Get classification coverage for a taxonomy — documents classified vs total, per-facet coverage, term usage, source count.",
     annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
 )
 async def agentbase_get_taxonomy_coverage(
@@ -388,6 +388,7 @@ async def agentbase_get_taxonomy_coverage(
     from sqlalchemy import select, func
     from app.models import Source
     from app.services.taxonomy import TaxonomyService
+    from app.services.taxonomy.analytics import TaxonomyCoverageService
 
     async with async_session_maker() as db:
         try:
@@ -396,24 +397,19 @@ async def agentbase_get_taxonomy_coverage(
             if not taxonomy:
                 return {"error": f"Taxonomy not found: {taxonomy_id}"}
 
-            stmt = select(
-                func.coalesce(func.sum(Source.document_count), 0),
-                func.count(Source.id),
-            ).where(
+            coverage = await TaxonomyCoverageService(db).get_coverage(taxonomy_id)
+
+            stmt = select(func.count(Source.id)).where(
                 Source.enrichment_enabled.is_(True),
                 Source.enrichment_taxonomy_id == taxonomy_id,
             )
             result = await db.execute(stmt)
-            row = result.one()
-            total_docs = int(row[0])
-            source_count = int(row[1])
+            source_count = int(result.scalar() or 0)
 
             return {
                 "taxonomy_id": taxonomy_id,
                 "taxonomy_name": taxonomy.name,
-                "total_documents": total_docs,
-                "classified_documents": total_docs,
-                "coverage_percent": 100.0 if total_docs > 0 else 0.0,
+                **coverage,
                 "source_count": source_count,
             }
         except Exception as e:
