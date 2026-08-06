@@ -556,6 +556,10 @@ class BaseIndexer:
         from sqlalchemy import select
 
         content_hash = self._compute_content_hash(content)
+        # DocumentContent.title is String(500); extracted titles (e.g. a long
+        # markdown H1) can exceed it and abort the whole index run on flush.
+        if title:
+            title = title[:500]
 
         # Check for existing content
         stmt = select(ScrapedContent).where(

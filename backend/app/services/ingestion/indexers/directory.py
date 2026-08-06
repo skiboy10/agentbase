@@ -165,6 +165,18 @@ class DirectoryIndexer(BaseIndexer):
                         primary_kb.id, document_id
                     )
                     if existing and existing.content_hash == content_hash:
+                        # Still upsert the per-source DocumentContent row:
+                        # sources indexed before these rows existed would
+                        # otherwise skip every unchanged file forever and
+                        # never appear in taxonomy coverage.
+                        await self._save_scraped_content(
+                            source=source,
+                            url=str(file_path),
+                            title=file_path.stem,
+                            content=content,
+                            file_path=str(file_path),
+                            file_type=ext.lstrip("."),
+                        )
                         skipped_count += 1
                         await self._update_progress(source, doc_count + 1, f"Unchanged: {filename}")
                         continue

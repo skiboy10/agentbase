@@ -9,7 +9,7 @@ the current taxonomy.version.
 """
 from typing import Optional
 
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
@@ -62,8 +62,8 @@ class TaxonomyCoverageService:
         if not taxonomy:
             return {}
 
-        docs = await self._fetch_documents(taxonomy_id, source_id)
-        total = len(docs)
+        classifications = await self._fetch_classifications(taxonomy_id, source_id)
+        total = len(classifications)
         if total == 0:
             return self._empty_coverage(total)
 
@@ -74,8 +74,8 @@ class TaxonomyCoverageService:
         facet_counts: dict[str, int] = {f: 0 for f in facets}
         term_counts: dict[str, dict[str, int]] = {f: {} for f in facets}
 
-        for doc in docs:
-            classification = doc.classification or {}
+        for classification in classifications:
+            classification = classification or {}
             has_any = False
 
             for facet in facets:
@@ -196,20 +196,22 @@ class TaxonomyCoverageService:
         )
         return result.scalar_one_or_none()
 
-    async def _fetch_documents(
+    async def _fetch_classifications(
         self,
         taxonomy_id: str,
         source_id: Optional[str],
-    ) -> list[DocumentContent]:
+    ) -> list[Optional[dict]]:
+        """Fetch only the classification column — never full rows, whose
+        raw_content would stream every document's text into memory."""
         stmt = (
-            select(DocumentContent)
+            select(DocumentContent.classification)
             .join(Source, DocumentContent.source_id == Source.id)
             .where(_taxonomy_scope_filter(taxonomy_id))
         )
         if source_id:
             stmt = stmt.where(DocumentContent.source_id == source_id)
         result = await self.db.execute(stmt)
-        return list(result.scalars().all())
+        return [row[0] for row in result.all()]
 
     async def _infer_facets(self, taxonomy_id: str) -> list[str]:
         """Derive distinct facets from the terms table when taxonomy.facets is empty."""
@@ -227,12 +229,20 @@ class TaxonomyCoverageService:
 
 
 def _taxonomy_scope_filter(taxonomy_id: str):
-    """Documents belong to a taxonomy when tagged directly, or when their
-    parent source is enriched against it (covers rows written before
-    per-document taxonomy tagging existed)."""
+    """Documents belong to a taxonomy when tagged directly, or — for rows
+    written before per-document taxonomy tagging existed — when they are
+    untagged and their parent source is actively enriched against it.
+
+    The fallback arm must exclude rows tagged with a *different* taxonomy:
+    otherwise repointing a source's enrichment taxonomy A -> B would count
+    A-tagged documents in both taxonomies until a full re-index."""
     return or_(
         DocumentContent.taxonomy_id == taxonomy_id,
-        Source.enrichment_taxonomy_id == taxonomy_id,
+        and_(
+            DocumentContent.taxonomy_id.is_(None),
+            Source.enrichment_taxonomy_id == taxonomy_id,
+            Source.enrichment_enabled.is_(True),
+        ),
     )
 
 

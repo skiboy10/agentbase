@@ -128,6 +128,42 @@ class TestGetCoverage:
         assert report["coverage_percent"] == 100.0
 
     @pytest.mark.asyncio
+    async def test_tagged_documents_not_cross_attributed(self, db_session):
+        """A row tagged with taxonomy A must not appear in taxonomy B's
+        coverage even after its source is repointed to enrich against B."""
+        tax_a = await _seed_taxonomy(db_session)
+        tax_b = await _seed_taxonomy(db_session)
+        source = await _seed_source(db_session, tax_b.id)
+
+        db_session.add(_make_doc(
+            source.id, "/tmp/acme/a.pdf",
+            taxonomy_id=tax_a.id,
+            classification={"platforms": ["AcmeCRM"]},
+            classification_taxonomy_version=1,
+        ))
+        await db_session.commit()
+
+        svc = TaxonomyCoverageService(db_session)
+        report_a = await svc.get_coverage(tax_a.id)
+        report_b = await svc.get_coverage(tax_b.id)
+        assert report_a["total_documents"] == 1
+        assert report_a["classified_documents"] == 1
+        assert report_b["total_documents"] == 0
+
+    @pytest.mark.asyncio
+    async def test_untagged_rows_require_active_enrichment(self, db_session):
+        """Untagged legacy rows only count when the parent source has
+        enrichment enabled for this taxonomy."""
+        taxonomy = await _seed_taxonomy(db_session)
+        source = await _seed_source(db_session, taxonomy.id)
+        source.enrichment_enabled = False
+        db_session.add(_make_doc(source.id, "/tmp/acme/x.pdf"))
+        await db_session.commit()
+
+        report = await TaxonomyCoverageService(db_session).get_coverage(taxonomy.id)
+        assert report["total_documents"] == 0
+
+    @pytest.mark.asyncio
     async def test_empty_when_no_documents(self, db_session):
         taxonomy = await _seed_taxonomy(db_session)
         report = await TaxonomyCoverageService(db_session).get_coverage(taxonomy.id)
