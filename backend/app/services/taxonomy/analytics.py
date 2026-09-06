@@ -9,11 +9,12 @@ the current taxonomy.version.
 """
 from typing import Optional
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
-from app.models import Taxonomy, TaxonomyTerm, DocumentContent
+from app.models import Taxonomy, TaxonomyTerm, DocumentContent, Source
+from app.services.taxonomy.facets import facet_to_classification_key
 
 logger = structlog.get_logger()
 
@@ -61,8 +62,8 @@ class TaxonomyCoverageService:
         if not taxonomy:
             return {}
 
-        docs = await self._fetch_documents(taxonomy_id, source_id)
-        total = len(docs)
+        classifications = await self._fetch_classifications(taxonomy_id, source_id)
+        total = len(classifications)
         if total == 0:
             return self._empty_coverage(total)
 
@@ -73,12 +74,18 @@ class TaxonomyCoverageService:
         facet_counts: dict[str, int] = {f: 0 for f in facets}
         term_counts: dict[str, dict[str, int]] = {f: {} for f in facets}
 
-        for doc in docs:
-            classification = doc.classification or {}
+        for classification in classifications:
+            classification = classification or {}
             has_any = False
 
             for facet in facets:
-                values = classification.get(facet) or []
+                # Enrichment stores values under the pluralized key
+                # ("platform" -> "platforms"); fall back to the raw facet
+                # name for any data written outside the enrichment pipeline.
+                raw = classification.get(facet_to_classification_key(facet))
+                if raw is None:
+                    raw = classification.get(facet)
+                values = _normalize_values(raw)
                 if values:
                     has_any = True
                     facet_counts[facet] += 1
@@ -139,7 +146,8 @@ class TaxonomyCoverageService:
 
         stmt = (
             select(DocumentContent)
-            .where(DocumentContent.taxonomy_id == taxonomy_id)
+            .join(Source, DocumentContent.source_id == Source.id)
+            .where(_taxonomy_scope_filter(taxonomy_id))
             .where(
                 (DocumentContent.classification_taxonomy_version < taxonomy.version)
                 | (DocumentContent.classification_taxonomy_version == None)
@@ -148,7 +156,7 @@ class TaxonomyCoverageService:
         )
         if source_id:
             stmt = stmt.where(DocumentContent.source_id == source_id)
-        stmt = stmt.order_by(DocumentContent.updated_at.asc()).limit(limit)
+        stmt = stmt.order_by(DocumentContent.scraped_at.asc()).limit(limit)
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
@@ -165,7 +173,8 @@ class TaxonomyCoverageService:
         stmt = (
             select(func.count())
             .select_from(DocumentContent)
-            .where(DocumentContent.taxonomy_id == taxonomy_id)
+            .join(Source, DocumentContent.source_id == Source.id)
+            .where(_taxonomy_scope_filter(taxonomy_id))
             .where(
                 (DocumentContent.classification_taxonomy_version < taxonomy.version)
                 | (DocumentContent.classification_taxonomy_version == None)
@@ -187,16 +196,22 @@ class TaxonomyCoverageService:
         )
         return result.scalar_one_or_none()
 
-    async def _fetch_documents(
+    async def _fetch_classifications(
         self,
         taxonomy_id: str,
         source_id: Optional[str],
-    ) -> list[DocumentContent]:
-        stmt = select(DocumentContent).where(DocumentContent.taxonomy_id == taxonomy_id)
+    ) -> list[Optional[dict]]:
+        """Fetch only the classification column — never full rows, whose
+        raw_content would stream every document's text into memory."""
+        stmt = (
+            select(DocumentContent.classification)
+            .join(Source, DocumentContent.source_id == Source.id)
+            .where(_taxonomy_scope_filter(taxonomy_id))
+        )
         if source_id:
             stmt = stmt.where(DocumentContent.source_id == source_id)
         result = await self.db.execute(stmt)
-        return list(result.scalars().all())
+        return [row[0] for row in result.all()]
 
     async def _infer_facets(self, taxonomy_id: str) -> list[str]:
         """Derive distinct facets from the terms table when taxonomy.facets is empty."""
@@ -210,11 +225,46 @@ class TaxonomyCoverageService:
 
     @staticmethod
     def _empty_coverage(total: int) -> dict:
-        return {
-            "total_documents": total,
-            "classified_documents": 0,
-            "unclassified_documents": total,
-            "coverage_percent": 0.0,
-            "facet_coverage": {},
-            "term_usage": {},
-        }
+        return _empty_coverage_dict(total)
+
+
+def _taxonomy_scope_filter(taxonomy_id: str):
+    """Documents belong to a taxonomy when tagged directly, or — for rows
+    written before per-document taxonomy tagging existed — when they are
+    untagged and their parent source is actively enriched against it.
+
+    The fallback arm must exclude rows tagged with a *different* taxonomy:
+    otherwise repointing a source's enrichment taxonomy A -> B would count
+    A-tagged documents in both taxonomies until a full re-index."""
+    return or_(
+        DocumentContent.taxonomy_id == taxonomy_id,
+        and_(
+            DocumentContent.taxonomy_id.is_(None),
+            Source.enrichment_taxonomy_id == taxonomy_id,
+            Source.enrichment_enabled.is_(True),
+        ),
+    )
+
+
+def _normalize_values(raw) -> list:
+    """Coerce a classification value to a list of term values.
+
+    Enrichment emits lists for most facets but a bare string for
+    doc_category; an empty string means "unclassified" for that facet.
+    """
+    if isinstance(raw, list):
+        return [v for v in raw if v]
+    if isinstance(raw, str):
+        return [raw] if raw else []
+    return []
+
+
+def _empty_coverage_dict(total: int) -> dict:
+    return {
+        "total_documents": total,
+        "classified_documents": 0,
+        "unclassified_documents": total,
+        "coverage_percent": 0.0,
+        "facet_coverage": {},
+        "term_usage": {},
+    }

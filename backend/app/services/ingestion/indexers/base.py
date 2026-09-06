@@ -537,15 +537,29 @@ class BaseIndexer:
         url: str,
         title: str | None,
         content: str,
+        *,
+        file_path: str | None = None,
+        file_type: str | None = None,
+        document_type: str | None = None,
+        classification: dict | None = None,
+        classification_method: str | None = None,
+        taxonomy_id: str | None = None,
+        classification_taxonomy_version: int | None = None,
     ) -> ScrapedContent:
         """Save raw scraped content to postgres for re-embedding experiments.
 
         Uses upsert pattern: updates existing record if URL already scraped,
-        creates new record otherwise.
+        creates new record otherwise. Enrichment fields (classification,
+        taxonomy attribution) feed taxonomy coverage analytics and stale
+        detection; they are only overwritten when a new value is provided.
         """
         from sqlalchemy import select
 
         content_hash = self._compute_content_hash(content)
+        # DocumentContent.title is String(500); extracted titles (e.g. a long
+        # markdown H1) can exceed it and abort the whole index run on flush.
+        if title:
+            title = title[:500]
 
         # Check for existing content
         stmt = select(ScrapedContent).where(
@@ -562,6 +576,20 @@ class BaseIndexer:
             existing.content_hash = content_hash
             existing.content_length = len(content)
             existing.scraped_at = datetime.utcnow()
+            if file_path is not None:
+                existing.file_path = file_path
+            if file_type is not None:
+                existing.file_type = file_type
+            if document_type is not None:
+                existing.document_type = document_type
+            if classification is not None:
+                existing.classification = classification
+            if classification_method is not None:
+                existing.classification_method = classification_method
+            if taxonomy_id is not None:
+                existing.taxonomy_id = taxonomy_id
+            if classification_taxonomy_version is not None:
+                existing.classification_taxonomy_version = classification_taxonomy_version
             await self.db.flush()
             logger.debug("Updated scraped content", url=url, source_id=source.id)
             return existing
@@ -574,6 +602,13 @@ class BaseIndexer:
                 raw_content=content,
                 content_hash=content_hash,
                 content_length=len(content),
+                file_path=file_path,
+                file_type=file_type,
+                document_type=document_type,
+                classification=classification,
+                classification_method=classification_method,
+                taxonomy_id=taxonomy_id,
+                classification_taxonomy_version=classification_taxonomy_version,
             )
             self.db.add(scraped)
             await self.db.flush()

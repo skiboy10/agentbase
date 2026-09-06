@@ -1678,7 +1678,7 @@ DELETE /api/taxonomies/{taxonomy_id}/terms/{term_id}
 GET /api/taxonomies/{taxonomy_id}/coverage?source_id={uuid}
 ```
 
-Returns classification coverage statistics: classified vs. unclassified chunk counts, per-facet and per-term breakdowns.
+Returns classification coverage statistics: classified vs. unclassified document counts, per-facet coverage, and per-term usage.
 
 **Query Parameters:**
 | Parameter | Type | Required | Description |
@@ -1688,12 +1688,17 @@ Returns classification coverage statistics: classified vs. unclassified chunk co
 **Response:**
 ```json
 {
-  "total_chunks": 6200,
-  "classified_chunks": 4100,
-  "unclassified_chunks": 2100,
-  "coverage_percent": 66.1,
-  "by_facet": {
-    "doc_category": { "proposal": 800, "guide": 1200 }
+  "total_documents": 150,
+  "classified_documents": 120,
+  "unclassified_documents": 30,
+  "coverage_percent": 80.0,
+  "facet_coverage": {
+    "platform": { "covered": 110, "total": 150, "percent": 73.3 }
+  },
+  "term_usage": {
+    "platform": [
+      { "value": "AcmeCRM", "count": 95 }
+    ]
   }
 }
 ```

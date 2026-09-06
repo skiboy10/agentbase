@@ -225,6 +225,7 @@ class FileItemIndexer(BaseIndexer):
         # Optional enrichment
         classification_payload: dict = {}
         doc_type = "standard"
+        enrichment_fields: dict = {}
         enrich_cfg = self._build_enrichment_config(source)
         if enrich_cfg.enabled or enrich_cfg.document_type_detection:
             enrich_result = await self._enrichment_service.enrich(
@@ -237,6 +238,12 @@ class FileItemIndexer(BaseIndexer):
             doc_type = enrich_result["document_type"]
             if enrich_result.get("classification"):
                 classification_payload = enrich_result["classification"]
+                enrichment_fields = {
+                    "classification": classification_payload,
+                    "classification_method": enrich_result.get("classification_method"),
+                    "taxonomy_id": enrich_result.get("taxonomy_id"),
+                    "classification_taxonomy_version": enrich_result.get("taxonomy_version"),
+                }
             # Recompute hash after enrichment changes the cleaned text
             content_hash = self._compute_content_hash(content)
 
@@ -331,6 +338,10 @@ class FileItemIndexer(BaseIndexer):
             url=file_path,
             title=fp.stem,
             content=content,
+            file_path=str(fp),
+            file_type=ext.lstrip("."),
+            document_type=doc_type,
+            **enrichment_fields,
         )
 
         # Per-library Document rows.
