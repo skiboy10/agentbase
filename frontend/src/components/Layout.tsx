@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Outlet, NavLink, useLocation } from 'react-router-dom'
-import { Database, Cloud, Settings, ChevronRight, ChevronLeft, Bot, BookOpen, Menu, KeyRound, Tags, Library, Rocket, MessageSquare, Activity, FlaskConical } from 'lucide-react'
+import { Database, Cloud, Settings, ChevronRight, ChevronLeft, Bot, BookOpen, Menu, KeyRound, Tags, Library, Rocket, MessageSquare, Activity, FlaskConical, Sparkles } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { Button } from '@/components/ui/button'
@@ -64,6 +64,7 @@ const navigation: NavSection[] = [
     label: 'Reference',
     items: [
       { name: 'Quickstart', href: '/quickstart', icon: Rocket },
+      { name: 'Agent Skills', href: '/skills', icon: Sparkles },
       { name: 'API Reference', href: '/api-reference', icon: BookOpen },
     ],
   },

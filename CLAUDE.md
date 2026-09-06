@@ -76,7 +76,7 @@ backend/app/
 └── services/         # Business logic (modular: ingestion/, rag/, library/, web_scraper/, library_chat.py)
 
 frontend/src/
-├── pages/            # Sources, Automations, Libraries, LibraryDetail, Taxonomy, TaxonomyDetail, Agents, AgentQuery, PromptStudio, Providers, Settings, APIKeys, Quickstart, APIReference, Experiments
+├── pages/            # Sources, Automations, Libraries, LibraryDetail, Taxonomy, TaxonomyDetail, Agents, AgentQuery, PromptStudio, Providers, Settings, APIKeys, Quickstart, Skills, APIReference, Experiments
 ├── components/       # Modular components (agents/, sources/, libraries/)
 └── services/api/     # Modular API client with types/
 ```
@@ -122,6 +122,7 @@ See ARCHITECTURE.md for patterns + file size guidelines.
 /api/events        - SSE subscription, /status
 /api/config        - Embedding configuration
 /api/docs          - API reference (serves API.md)
+/api/skills        - Agent skills catalog: list, detail (SKILL.md), /{slug}/archive (zip download)
 /api/jobs          - Background job queue status
 /api/metadata      - Metadata schema management
 /api/auth          - API key management (create, list, revoke, bootstrap)
@@ -336,7 +337,7 @@ Colors resolve through CSS tokens (`index.css` → `tailwind.config.js`), never 
 
 ## UI Navigation
 
-All pages global (no project-scoped sidebar filtering). Sidebar groups: **Knowledge** (Sources, Automations, Libraries, Taxonomy), **Agents** (Agents, Prompt Studio), **Lab** (Experiments), **Configure** (Providers, Settings, API Keys), **Reference** (Quickstart, API Reference).
+All pages global (no project-scoped sidebar filtering). Sidebar groups: **Knowledge** (Sources, Automations, Libraries, Taxonomy), **Agents** (Agents, Prompt Studio), **Lab** (Experiments), **Configure** (Providers, Settings, API Keys), **Reference** (Quickstart, Agent Skills, API Reference).
 
 | Page | Nav group | Description |
 |------|-----------|-------------|
@@ -350,12 +351,15 @@ All pages global (no project-scoped sidebar filtering). Sidebar groups: **Knowle
 | Settings | Configure | System configuration |
 | API Keys | Configure | Platform API key management |
 | Quickstart | Reference | Object reference + getting started |
+| Agent Skills | Reference | Browse + download bundled Claude Code skills (`.claude/skills/*`) for install |
 | API Reference | Reference | Interactive API docs |
 | Experiments | Lab | Evaluation workbench: question sets, scorecards, and pipeline experiments (compare/promote) live; index experiments land in Slice 4 (docs/evaluation-experiments-design.md) |
 
 ## Knowledge Librarian Skill
 
 `.claude/skills/knowledge-librarian/` — Claude Code skill for autonomous domain library building. Invoke when asked to "build a knowledge library" or "curate knowledge for [topic]". Covers: source discovery, library creation, taxonomy design, coverage gap analysis, maintenance. Recipes in `recipes/` subdirectory.
+
+Skills under `.claude/skills/` are served to users via the **Agent Skills** page (Reference nav) — the `/api/skills` router (`backend/app/api/skills.py`) lists them and streams a zip for one-click install. The directory is bind-mounted into the backend container (`docker-compose.yml`), so new skills appear in the UI without a rebuild.
 
 **Freshness lifecycle fields** on Source model: `freshness_policy` (none/automatic/manual), `stale_after_days`, `refresh_interval_days`, `next_refresh_at`. Background scheduler auto-refreshes `automatic` sources.
 

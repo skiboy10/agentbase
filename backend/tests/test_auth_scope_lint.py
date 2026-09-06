@@ -23,6 +23,9 @@ EXEMPT_FILES = {
     "events.py",
     # Public API reference docs
     "docs.py",
+    # Public, read-only catalog of repo-bundled agent skills (.claude/skills/*);
+    # serves the same non-secret static content shown on the Agent Skills page
+    "skills.py",
     # Agent query uses its own X-API-Key + agent-scoped auth
     "agents/query.py",
     # Router init files (no route handlers)
