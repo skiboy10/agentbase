@@ -36,6 +36,8 @@ Services and ports:
 Never commit instance configuration. The following are machine-specific and must remain local (they are gitignored — keep them that way):
 
 - `docker-compose.override.yml` — local volume paths, data directory redirects, port tweaks
+- `docker-compose.archive.yml` — optional extra binds (e.g. an external disk); gitignored
+- `scripts/wait-and-start.sh` — machine-local boot helper; gitignored
 - `.env` files — secrets, API keys, hostnames
 - Data directories — Postgres data, Qdrant storage, uploads
 
