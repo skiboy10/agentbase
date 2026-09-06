@@ -62,7 +62,11 @@ def _library_to_dict(kb) -> dict:
     description="List all libraries with pagination. Optional project_id filter. Each library owns a Qdrant collection. Supports limit/offset pagination (default: limit=50, offset=0).",
     annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
 )
-async def agentbase_list_libraries(project_id: Optional[str] = None, limit: int = 50, offset: int = 0) -> dict:
+async def agentbase_list_libraries(
+    project_id: Optional[str] = None,
+    limit: Annotated[int, Field(ge=1, le=500)] = 50,
+    offset: Annotated[int, Field(ge=0)] = 0,
+) -> dict:
     """List all libraries with pagination.
 
     Returns:
@@ -212,6 +216,8 @@ async def agentbase_update_library(
             kb = await svc.update_kb(library_id, **updates)
             if not kb:
                 return {"error": f"Library not found: {library_id}"}
+            # update_kb refreshes columns only; re-fetch so sources is selectinload'd.
+            kb = await svc.get_kb(library_id) or kb
             logger.info("MCP: Updated library", library_id=library_id)
             return _library_to_dict(kb)
         except Exception as e:
@@ -339,6 +345,8 @@ async def agentbase_recalculate_library_stats(library_id: str) -> dict:
             kb = await svc.recalculate_stats(library_id)
             if not kb:
                 return {"error": f"Library not found: {library_id}"}
+            # recalculate_stats refreshes columns only; re-fetch so sources is selectinload'd.
+            kb = await svc.get_kb(library_id) or kb
             logger.info("MCP: Recalculated library stats", library_id=library_id)
             return _library_to_dict(kb)
         except Exception as e:

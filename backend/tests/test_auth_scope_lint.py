@@ -4,10 +4,10 @@ Auth scope lint check — ensures every API endpoint has require_scope.
 Prevents "forgotten lock" regressions where new endpoints default to open.
 Uses AST static analysis so no running server is needed.
 
-Closes #5.
+Per-handler, not per-file: a file with one protected route must fail if
+another handler in the same file is missing Depends(require_scope(...)).
 """
 import ast
-import os
 from pathlib import Path
 
 API_DIR = Path(__file__).resolve().parent.parent / "app" / "api"
@@ -33,12 +33,17 @@ EXEMPT_FILES = {
     "auth/__init__.py",
 }
 
-# Files with known unprotected endpoints (new code not yet secured).
-# These are tracked so the test passes today while flagging any NEW
-# unprotected files. Remove entries as auth is added.
-# 2026-07-04: emptied — taxonomy.py, library.py, and agents/libraries.py
-# now carry require_scope on every handler; tests.py no longer exists.
+# File-level known-unprotected list. Empty: new exemptions must be
+# per-route (KNOWN_UNPROTECTED_ROUTES) so a sibling handler is still linted.
 KNOWN_UNPROTECTED: set[str] = set()
+
+# Per-route exemptions: (relative path from backend/app/api/, function name).
+# Prefer this over file-level skips.
+KNOWN_UNPROTECTED_ROUTES: set[tuple[str, str]] = {
+    # First-key bootstrap: self-disables once any active key exists (409).
+    # Intentionally unauthenticated — the only way to create the initial admin key.
+    ("auth/routes.py", "bootstrap_api_key"),
+}
 
 
 def _find_route_files() -> list[Path]:
@@ -51,73 +56,213 @@ def _get_relative(filepath: Path) -> str:
     return str(filepath.relative_to(API_DIR))
 
 
-def _file_has_routes(source: str) -> bool:
-    """Check if a Python file defines any route handlers via @router decorators."""
-    try:
-        tree = ast.parse(source)
-    except SyntaxError:
+def _is_route_decorator(node: ast.AST) -> bool:
+    """Match @router.get(...), @router.post(...), etc."""
+    if not isinstance(node, ast.Call):
         return False
+    func = node.func
+    return isinstance(func, ast.Attribute) and func.attr in ROUTE_DECORATORS
 
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            for decorator in node.decorator_list:
-                # Match @router.get(...), @router.post(...), etc.
-                if (
-                    isinstance(decorator, ast.Call)
-                    and isinstance(decorator.func, ast.Attribute)
-                    and decorator.func.attr in ROUTE_DECORATORS
-                ):
-                    return True
+
+def _is_require_scope_call(node: ast.AST) -> bool:
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    if isinstance(func, ast.Name) and func.id == "require_scope":
+        return True
+    if isinstance(func, ast.Attribute) and func.attr == "require_scope":
+        return True
     return False
 
 
-def _file_has_require_scope(source: str) -> bool:
-    """Check if a file references require_scope anywhere in its source."""
-    return "require_scope" in source
+def _is_depends_require_scope(node: ast.AST) -> bool:
+    """Match Depends(require_scope(...))."""
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    is_depends = (
+        (isinstance(func, ast.Name) and func.id == "Depends")
+        or (isinstance(func, ast.Attribute) and func.attr == "Depends")
+    )
+    if not is_depends:
+        return False
+    if any(_is_require_scope_call(arg) for arg in node.args):
+        return True
+    return any(_is_require_scope_call(kw.value) for kw in node.keywords)
 
 
-def test_all_route_files_have_require_scope():
+def _subtree_has_depends_require_scope(node: ast.AST | None) -> bool:
+    if node is None:
+        return False
+    for child in ast.walk(node):
+        if _is_depends_require_scope(child):
+            return True
+    return False
+
+
+def _handler_has_require_scope(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """True if this handler has Depends(require_scope(...)) on itself.
+
+    Checks the function's decorator_list (e.g. dependencies=[...]) and
+    its positional/keyword-only defaults (the FastAPI Depends() pattern).
     """
-    Every API route file (except exempt ones) must use require_scope.
+    for decorator in fn.decorator_list:
+        if _subtree_has_depends_require_scope(decorator):
+            return True
+    for default in fn.args.defaults:
+        if _subtree_has_depends_require_scope(default):
+            return True
+    for default in fn.args.kw_defaults:
+        if _subtree_has_depends_require_scope(default):
+            return True
+    return False
 
-    New files without require_scope will fail this test, forcing the
-    developer to either add auth or explicitly add to KNOWN_UNPROTECTED
-    (with a plan to fix).
-    """
+
+def _iter_route_handlers(tree: ast.AST):
+    """Yield (function_name, function_node) for @router.<method> handlers."""
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if any(_is_route_decorator(dec) for dec in node.decorator_list):
+            yield node.name, node
+
+
+def unprotected_handlers_in_source(source: str) -> list[str]:
+    """Return names of route handlers missing Depends(require_scope(...))."""
+    tree = ast.parse(source)
     missing = []
+    for name, fn in _iter_route_handlers(tree):
+        if not _handler_has_require_scope(fn):
+            missing.append(name)
+    return missing
+
+
+def test_lint_detects_unprotected_sibling_handler():
+    """A file with one protected route must fail if a sibling is open."""
+    source = """
+from fastapi import APIRouter, Depends
+from app.core.auth import Scope, require_scope
+
+router = APIRouter()
+
+@router.get("/protected")
+async def protected(_auth=Depends(require_scope(Scope.READ))):
+    return {}
+
+@router.post("/unprotected")
+async def unprotected():
+    return {}
+"""
+    assert unprotected_handlers_in_source(source) == ["unprotected"]
+
+
+def test_lint_accepts_depends_on_decorator():
+    """require_scope in the decorator's dependencies= list counts as protected."""
+    source = """
+from fastapi import APIRouter, Depends
+from app.core.auth import Scope, require_scope
+
+router = APIRouter()
+
+@router.get("/x", dependencies=[Depends(require_scope(Scope.READ))])
+async def via_decorator():
+    return {}
+"""
+    assert unprotected_handlers_in_source(source) == []
+
+
+def test_lint_accepts_kwonly_depends():
+    source = """
+from fastapi import APIRouter, Depends
+from app.core.auth import Scope, require_scope
+
+router = APIRouter()
+
+@router.get("/x")
+async def via_kwonly(*, _auth=Depends(require_scope(Scope.WRITE))):
+    return {}
+"""
+    assert unprotected_handlers_in_source(source) == []
+
+
+def test_all_route_handlers_have_require_scope():
+    """
+    Every @router.<method> handler (except documented exemptions) must
+    have Depends(require_scope(...)) on that handler itself.
+    """
+    missing: list[str] = []
 
     for filepath in _find_route_files():
         rel = _get_relative(filepath)
 
-        # Skip exempt files
         if rel in EXEMPT_FILES:
             continue
-
-        # Skip known unprotected (tracked separately)
         if rel in KNOWN_UNPROTECTED:
             continue
 
         source = filepath.read_text()
-
-        # Skip files with no route handlers
-        if not _file_has_routes(source):
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
             continue
 
-        # This file has routes — it must have require_scope
-        if not _file_has_require_scope(source):
-            missing.append(rel)
+        for name, fn in _iter_route_handlers(tree):
+            if (rel, name) in KNOWN_UNPROTECTED_ROUTES:
+                continue
+            if not _handler_has_require_scope(fn):
+                missing.append(f"{rel}:{name}")
 
     assert not missing, (
-        f"API route files missing require_scope (add auth or update "
-        f"EXEMPT_FILES/KNOWN_UNPROTECTED with justification):\n"
+        "API route handlers missing Depends(require_scope(...)) "
+        "(add auth, or add (file, function) to KNOWN_UNPROTECTED_ROUTES "
+        "with justification):\n"
         + "\n".join(f"  - {f}" for f in missing)
+    )
+
+
+def test_known_unprotected_routes_still_unprotected():
+    """
+    Catch stale per-route exemptions — if auth was added, remove the
+    (file, function) pair so the handler stays protected.
+    """
+    now_protected = []
+    missing_fn = []
+
+    for rel, func_name in sorted(KNOWN_UNPROTECTED_ROUTES):
+        filepath = API_DIR / rel
+        if not filepath.exists():
+            missing_fn.append(f"{rel}:{func_name} (file gone)")
+            continue
+
+        source = filepath.read_text()
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            continue
+
+        handlers = {name: fn for name, fn in _iter_route_handlers(tree)}
+        fn = handlers.get(func_name)
+        if fn is None:
+            missing_fn.append(f"{rel}:{func_name} (function gone)")
+            continue
+        if _handler_has_require_scope(fn):
+            now_protected.append(f"{rel}:{func_name}")
+
+    assert not missing_fn, (
+        "KNOWN_UNPROTECTED_ROUTES entries no longer exist — remove them:\n"
+        + "\n".join(f"  - {f}" for f in missing_fn)
+    )
+    assert not now_protected, (
+        "These handlers now have require_scope — remove them from "
+        "KNOWN_UNPROTECTED_ROUTES in test_auth_scope_lint.py:\n"
+        + "\n".join(f"  - {f}" for f in now_protected)
     )
 
 
 def test_known_unprotected_still_unprotected():
     """
-    Catch stale KNOWN_UNPROTECTED entries — if auth was added, remove
-    the file from the known list so it stays protected.
+    Catch stale KNOWN_UNPROTECTED file-level entries — if auth was added,
+    remove the file from the known list so it stays protected.
     """
     now_protected = []
 
@@ -127,12 +272,17 @@ def test_known_unprotected_still_unprotected():
             continue
 
         source = filepath.read_text()
-        if _file_has_require_scope(source):
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            continue
+        handlers = list(_iter_route_handlers(tree))
+        if handlers and all(_handler_has_require_scope(fn) for _, fn in handlers):
             now_protected.append(rel)
 
     assert not now_protected, (
-        f"These files now have require_scope — remove them from "
-        f"KNOWN_UNPROTECTED in test_auth_scope_lint.py:\n"
+        f"These files now have require_scope on every handler — remove them "
+        f"from KNOWN_UNPROTECTED in test_auth_scope_lint.py:\n"
         + "\n".join(f"  - {f}" for f in now_protected)
     )
 

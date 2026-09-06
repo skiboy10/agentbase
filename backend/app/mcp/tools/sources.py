@@ -177,8 +177,8 @@ async def agentbase_list_sources(
     project_id: Optional[str] = None,
     freshness_status: Optional[str] = None,
     parent_source_id: Optional[str] = None,
-    limit: int = 50,
-    offset: int = 0,
+    limit: Annotated[int, Field(ge=1, le=500)] = 50,
+    offset: Annotated[int, Field(ge=0)] = 0,
 ) -> dict:
     """List sources with optional filters and pagination.
 

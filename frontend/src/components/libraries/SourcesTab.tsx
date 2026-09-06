@@ -9,6 +9,7 @@ import {
 import { cn } from '../../lib/utils'
 import { getSourceTypeMeta } from '@/lib/sourceType'
 import { libraryApi } from '../../services/api/library'
+import { ApiError } from '../../services/api/base'
 import type { LibrarySource } from '../../services/api/types/library'
 import { useToast } from '@/hooks/use-toast'
 import { Badge } from '@/components/ui/badge'
@@ -27,6 +28,9 @@ import { SourcePicker, statusVariant } from './SourcePicker'
 
 interface SourcesTabProps {
   kbId: string
+  /** Library locked embedding. Null/omitted = unlocked. */
+  embeddingProvider?: string | null
+  embeddingModel?: string | null
   onError: (msg: string) => void
   onSourcesChanged?: () => Promise<void> | void
 }
@@ -40,7 +44,13 @@ function formatDate(iso: string | null) {
   })
 }
 
-export default function SourcesTab({ kbId, onError, onSourcesChanged }: SourcesTabProps) {
+export default function SourcesTab({
+  kbId,
+  embeddingProvider = null,
+  embeddingModel = null,
+  onError,
+  onSourcesChanged,
+}: SourcesTabProps) {
   const { toast } = useToast()
   const [sources, setSources] = useState<LibrarySource[]>([])
   const [loading, setLoading] = useState(true)
@@ -90,7 +100,12 @@ export default function SourcesTab({ kbId, onError, onSourcesChanged }: SourcesT
       toast({ title: 'Source added', description: 'The source has been attached to this library.' })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to add source'
-      toast({ title: 'Failed to add source', description: message, variant: 'destructive' })
+      const suggested = err instanceof ApiError ? err.suggestedAction : undefined
+      toast({
+        title: 'Failed to add source',
+        description: suggested ? `${message} ${suggested}` : message,
+        variant: 'destructive',
+      })
     } finally {
       setAddLoading(false)
     }
@@ -201,7 +216,9 @@ export default function SourcesTab({ kbId, onError, onSourcesChanged }: SourcesT
           <DialogHeader>
             <DialogTitle>Add Source</DialogTitle>
             <DialogDescription>
-              Select a source to attach to this library. Sources already in this library are shown disabled.
+              {embeddingProvider && embeddingModel
+                ? `Select a source to attach. Sources already in this library or using a different embedding model than ${embeddingProvider}/${embeddingModel} are shown disabled.`
+                : 'Select a source to attach to this library. Sources already in this library are shown disabled. The first source will lock the library embedding model.'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
@@ -210,6 +227,8 @@ export default function SourcesTab({ kbId, onError, onSourcesChanged }: SourcesT
               boundSourceIds={boundSourceIds}
               value={addSourceId}
               onChange={setAddSourceId}
+              embeddingProvider={embeddingProvider}
+              embeddingModel={embeddingModel}
             />
           </div>
           <DialogFooter>

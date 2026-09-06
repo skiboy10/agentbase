@@ -13,6 +13,7 @@ import ipaddress
 from enum import Enum
 from typing import Optional
 
+import structlog
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +21,8 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.models import APIKey
 from app.services.auth_service import AuthService
+
+logger = structlog.get_logger()
 
 # ContextVar for passing auth state into MCP tools (set by middleware)
 # Values: None (no auth), "auth_token" (global token), or APIKey instance
@@ -70,15 +73,23 @@ def check_mcp_scope(required_scope: "Scope") -> None:
             return
         raise ValueError(f"Insufficient scope. Required: '{required_scope.value}'")
 
-    # No auth context — contextvar didn't propagate (MCP Streamable HTTP transport
-    # processes tool calls in separate async contexts). The _MCPAuthWrapper in
-    # main.py already gates the initial MCP HTTP connection:
-    #   - External requests without a valid Bearer token are rejected
-    #   - Internal/LAN requests get AUTH_TOKEN_SENTINEL
-    # Any tool call that reaches here has already passed that connection-level
-    # check, so it's safe to allow regardless of which auth settings are
-    # configured (dev mode, EXTERNAL_HOSTNAME-only, AUTH_TOKEN, or both).
-    return
+    # No auth context. _MCPAuthWrapper sets the contextvar for every MCP
+    # request it admits (APIKey or AUTH_TOKEN_SENTINEL) and rejects the rest
+    # with 401. Stateless Streamable HTTP spawns its per-request server task
+    # from inside that request context, so the contextvar propagates into
+    # tool calls. Reaching this branch means propagation regressed (or the
+    # tool ran outside an MCP request). The connection-level gate also
+    # admits READ-scoped keys, so allowing here would let such a key run
+    # WRITE/ADMIN tools — fail closed instead.
+    logger.warning(
+        "MCP scope check found no auth context — contextvar did not "
+        "propagate into the tool-call task; denying",
+        required_scope=required_scope.value,
+    )
+    raise ValueError(
+        f"No auth context for MCP tool call; denying '{required_scope.value}' "
+        "operation. This indicates auth-context propagation failed."
+    )
 
 
 class Scope(str, Enum):

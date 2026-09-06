@@ -1083,3 +1083,266 @@ class TestLongRunningToolPayloads:
         assert result["total_urls"] == 1
         assert result["urls"] == ["https://acme.example"]
         assert result["tree"]["url"] == "https://acme.example"
+
+
+# ============================================================
+# MCP tool edge cases (#9)
+# ============================================================
+
+class TestBindKnowledgeBaseEdgeCases:
+    """agentbase_bind_knowledge_base distinguishes missing agent/library vs already bound."""
+
+    def _session(self, mock_maker, execute_result=None):
+        mock_session = AsyncMock()
+        if execute_result is not None:
+            mock_session.execute = AsyncMock(return_value=execute_result)
+        mock_maker.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_maker.return_value.__aexit__ = AsyncMock(return_value=False)
+        return mock_session
+
+    @pytest.mark.asyncio
+    async def test_agent_not_found(self):
+        from app.mcp.tools.agents import agentbase_bind_knowledge_base
+
+        mock_service = AsyncMock()
+        mock_service.get_agent.return_value = None
+
+        with patch("app.mcp.tools.agents.async_session_maker") as mock_maker, \
+             patch("app.mcp.tools.agents.AgentService", return_value=mock_service), \
+             patch("app.mcp.tools.agents.check_mcp_scope"):
+            self._session(mock_maker)
+            result = await agentbase_bind_knowledge_base("missing-agent", "lib-1")
+
+        assert result == {"error": "Agent not found: missing-agent"}
+        mock_service.bind_knowledge_base.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_library_not_found(self):
+        from app.mcp.tools.agents import agentbase_bind_knowledge_base
+
+        mock_agent = MagicMock()
+        mock_agent.library_bindings = []
+        mock_service = AsyncMock()
+        mock_service.get_agent.return_value = mock_agent
+
+        lib_result = MagicMock()
+        lib_result.scalar_one_or_none.return_value = None
+
+        with patch("app.mcp.tools.agents.async_session_maker") as mock_maker, \
+             patch("app.mcp.tools.agents.AgentService", return_value=mock_service), \
+             patch("app.mcp.tools.agents.check_mcp_scope"):
+            self._session(mock_maker, execute_result=lib_result)
+            result = await agentbase_bind_knowledge_base("agent-1", "missing-lib")
+
+        assert result == {"error": "Library not found: missing-lib"}
+        mock_service.bind_knowledge_base.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_already_bound(self):
+        from app.mcp.tools.agents import agentbase_bind_knowledge_base
+
+        existing = MagicMock()
+        existing.library_id = "lib-1"
+        mock_agent = MagicMock()
+        mock_agent.library_bindings = [existing]
+        mock_service = AsyncMock()
+        mock_service.get_agent.return_value = mock_agent
+
+        lib_result = MagicMock()
+        lib_result.scalar_one_or_none.return_value = MagicMock()
+
+        with patch("app.mcp.tools.agents.async_session_maker") as mock_maker, \
+             patch("app.mcp.tools.agents.AgentService", return_value=mock_service), \
+             patch("app.mcp.tools.agents.check_mcp_scope"):
+            self._session(mock_maker, execute_result=lib_result)
+            result = await agentbase_bind_knowledge_base("agent-1", "lib-1")
+
+        assert result == {"status": "already_bound", "agent_id": "agent-1", "library_id": "lib-1"}
+        mock_service.bind_knowledge_base.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_new_bind(self):
+        from app.mcp.tools.agents import agentbase_bind_knowledge_base
+
+        mock_agent = MagicMock()
+        mock_agent.library_bindings = []
+        mock_service = AsyncMock()
+        mock_service.get_agent.return_value = mock_agent
+        mock_service.bind_knowledge_base.return_value = MagicMock()
+
+        lib_result = MagicMock()
+        lib_result.scalar_one_or_none.return_value = MagicMock()
+
+        with patch("app.mcp.tools.agents.async_session_maker") as mock_maker, \
+             patch("app.mcp.tools.agents.AgentService", return_value=mock_service), \
+             patch("app.mcp.tools.agents.check_mcp_scope"):
+            self._session(mock_maker, execute_result=lib_result)
+            result = await agentbase_bind_knowledge_base("agent-1", "lib-1")
+
+        assert result == {"status": "bound", "agent_id": "agent-1", "library_id": "lib-1"}
+        mock_service.bind_knowledge_base.assert_awaited_once_with("agent-1", "lib-1")
+
+    @pytest.mark.asyncio
+    async def test_service_none_after_existence_checks_is_already_bound(self):
+        """If the service still returns None after agent+library exist, treat as already bound."""
+        from app.mcp.tools.agents import agentbase_bind_knowledge_base
+
+        mock_agent = MagicMock()
+        mock_agent.library_bindings = []
+        mock_service = AsyncMock()
+        mock_service.get_agent.return_value = mock_agent
+        mock_service.bind_knowledge_base.return_value = None
+
+        lib_result = MagicMock()
+        lib_result.scalar_one_or_none.return_value = MagicMock()
+
+        with patch("app.mcp.tools.agents.async_session_maker") as mock_maker, \
+             patch("app.mcp.tools.agents.AgentService", return_value=mock_service), \
+             patch("app.mcp.tools.agents.check_mcp_scope"):
+            self._session(mock_maker, execute_result=lib_result)
+            result = await agentbase_bind_knowledge_base("agent-1", "lib-1")
+
+        assert result == {"status": "already_bound", "agent_id": "agent-1", "library_id": "lib-1"}
+
+
+class TestStartWatcherMissingSource:
+    """agentbase_start_watcher must not call watcher_manager when the source is missing."""
+
+    @pytest.mark.asyncio
+    async def test_missing_source_returns_error_before_start(self):
+        from app.mcp.tools.source_ops import agentbase_start_watcher
+
+        mock_service = AsyncMock()
+        mock_service.get_source.return_value = None
+
+        with patch("app.mcp.tools.source_ops.async_session_maker") as mock_maker, \
+             patch("app.services.IngestionService", return_value=mock_service), \
+             patch("app.mcp.tools.source_ops.check_mcp_scope"), \
+             patch("app.services.ingestion.watcher.watcher_manager") as mock_wm:
+            mock_session = AsyncMock()
+            mock_maker.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_maker.return_value.__aexit__ = AsyncMock(return_value=False)
+            result = await agentbase_start_watcher("missing-src")
+
+        assert result == {"error": "Source not found: missing-src"}
+        mock_wm.start_watcher.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_sub_source_still_refuses_before_start(self):
+        from app.mcp.tools.source_ops import agentbase_start_watcher
+
+        mock_source = MagicMock()
+        mock_source.parent_source_id = "parent-1"
+        mock_service = AsyncMock()
+        mock_service.get_source.return_value = mock_source
+
+        with patch("app.mcp.tools.source_ops.async_session_maker") as mock_maker, \
+             patch("app.services.IngestionService", return_value=mock_service), \
+             patch("app.mcp.tools.source_ops.check_mcp_scope"), \
+             patch("app.services.ingestion.watcher.watcher_manager") as mock_wm:
+            mock_session = AsyncMock()
+            mock_maker.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_maker.return_value.__aexit__ = AsyncMock(return_value=False)
+            result = await agentbase_start_watcher("sub-1")
+
+        assert "error" in result
+        assert result["parent_source_id"] == "parent-1"
+        mock_wm.start_watcher.assert_not_called()
+
+
+class TestPaginationFieldConstraints:
+    """List tools declare Field(ge=1) on limit and Field(ge=0) on offset."""
+
+    def _schema(self, name: str) -> dict:
+        from app.mcp.server import mcp
+        return mcp._tool_manager._tools[name].parameters
+
+    def test_named_list_tools_have_limit_offset_bounds(self):
+        with_offset = [
+            "agentbase_list_sources",
+            "agentbase_list_libraries",
+            "agentbase_list_agents",
+            "agentbase_list_agent_knowledge_bases",
+            "agentbase_list_stale_sources",
+        ]
+        for name in with_offset:
+            props = self._schema(name)["properties"]
+            assert props["limit"]["minimum"] == 1, name
+            assert props["limit"]["maximum"] == 500, name
+            assert props["offset"]["minimum"] == 0, name
+
+        watcher_limit = self._schema("agentbase_list_watcher_events")["properties"]["limit"]
+        assert watcher_limit["minimum"] == 1
+        assert watcher_limit["maximum"] == 500
+
+    async def _call_via_lowlevel(self, name: str, arguments: dict):
+        from mcp import types
+        from app.mcp.server import mcp
+
+        handler = mcp._mcp_server.request_handlers[types.CallToolRequest]
+        req = types.CallToolRequest(
+            method="tools/call",
+            params=types.CallToolRequestParams(name=name, arguments=arguments),
+        )
+        return await handler(req)
+
+    @pytest.mark.asyncio
+    async def test_list_sources_limit_zero_is_mcp_error(self):
+        from mcp import types
+
+        result = await self._call_via_lowlevel(
+            "agentbase_list_sources", {"limit": 0}
+        )
+        assert isinstance(result.root, types.CallToolResult)
+        assert result.root.isError is True
+
+    @pytest.mark.asyncio
+    async def test_list_sources_negative_offset_is_mcp_error(self):
+        from mcp import types
+
+        result = await self._call_via_lowlevel(
+            "agentbase_list_sources", {"offset": -1}
+        )
+        assert isinstance(result.root, types.CallToolResult)
+        assert result.root.isError is True
+
+    @pytest.mark.asyncio
+    async def test_list_watcher_events_limit_too_large_is_mcp_error(self):
+        from mcp import types
+
+        result = await self._call_via_lowlevel(
+            "agentbase_list_watcher_events", {"source_id": "src-1", "limit": 501}
+        )
+        assert isinstance(result.root, types.CallToolResult)
+        assert result.root.isError is True
+
+    @pytest.mark.asyncio
+    async def test_list_stale_sources_negative_limit_is_mcp_error(self):
+        from mcp import types
+
+        result = await self._call_via_lowlevel(
+            "agentbase_list_stale_sources", {"limit": -1}
+        )
+        assert isinstance(result.root, types.CallToolResult)
+        assert result.root.isError is True
+
+    @pytest.mark.asyncio
+    async def test_list_libraries_limit_zero_is_mcp_error(self):
+        from mcp import types
+
+        result = await self._call_via_lowlevel(
+            "agentbase_list_libraries", {"limit": 0}
+        )
+        assert isinstance(result.root, types.CallToolResult)
+        assert result.root.isError is True
+
+    @pytest.mark.asyncio
+    async def test_list_agent_knowledge_bases_negative_offset_is_mcp_error(self):
+        from mcp import types
+
+        result = await self._call_via_lowlevel(
+            "agentbase_list_agent_knowledge_bases",
+            {"agent_id": "agent-1", "offset": -1},
+        )
+        assert isinstance(result.root, types.CallToolResult)
+        assert result.root.isError is True

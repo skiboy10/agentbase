@@ -208,7 +208,13 @@ export default function LibraryDetailPage() {
           </TabsList>
 
           <TabsContent value="sources">
-            <SourcesTab kbId={kb.id} onError={setError} onSourcesChanged={fetchKB} />
+            <SourcesTab
+              kbId={kb.id}
+              embeddingProvider={kb.embedding_provider}
+              embeddingModel={kb.embedding_model}
+              onError={setError}
+              onSourcesChanged={fetchKB}
+            />
           </TabsContent>
 
           <TabsContent value="documents">

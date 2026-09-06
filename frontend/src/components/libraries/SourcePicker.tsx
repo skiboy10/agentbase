@@ -14,6 +14,23 @@ interface SourcePickerProps {
   /** Currently selected source id (single-select). */
   value: string
   onChange: (sourceId: string) => void
+  /** Library locked embedding. Null/omitted = unlocked; any source may be bound. */
+  embeddingProvider?: string | null
+  embeddingModel?: string | null
+}
+
+/** True when the library is locked and this source uses a different embedding model. */
+export function sourceEmbeddingMismatch(
+  source: Pick<Source, 'embedding_provider' | 'embedding_model'>,
+  libraryProvider: string | null | undefined,
+  libraryModel: string | null | undefined,
+): boolean {
+  if (!libraryProvider || !libraryModel) return false
+  const srcProvider = source.embedding_provider
+  const srcModel = source.embedding_model
+  // Unconfigured sources inherit the library model on bind — not a mismatch.
+  if (!srcProvider || !srcModel) return false
+  return srcProvider !== libraryProvider || srcModel !== libraryModel
 }
 
 export const statusVariant = (
@@ -24,7 +41,13 @@ export const statusVariant = (
   return 'secondary'
 }
 
-export function SourcePicker({ boundSourceIds, value, onChange }: SourcePickerProps) {
+export function SourcePicker({
+  boundSourceIds,
+  value,
+  onChange,
+  embeddingProvider = null,
+  embeddingModel = null,
+}: SourcePickerProps) {
   const [sources, setSources] = useState<Source[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -139,6 +162,12 @@ export function SourcePicker({ boundSourceIds, value, onChange }: SourcePickerPr
           >
             {filtered.map(source => {
               const bound = boundSourceIds.has(source.id)
+              const mismatch = sourceEmbeddingMismatch(
+                source,
+                embeddingProvider,
+                embeddingModel,
+              )
+              const disabled = bound || mismatch
               const selected = value === source.id
               const meta = getSourceTypeMeta(source.source_type)
               const Icon = meta.icon
@@ -148,17 +177,17 @@ export function SourcePicker({ boundSourceIds, value, onChange }: SourcePickerPr
                   key={source.id}
                   role="option"
                   aria-selected={selected}
-                  aria-disabled={bound}
-                  tabIndex={bound ? -1 : 0}
+                  aria-disabled={disabled}
+                  tabIndex={disabled ? -1 : 0}
                   onClick={() => {
-                    if (!bound) onChange(selected ? '' : source.id)
+                    if (!disabled) onChange(selected ? '' : source.id)
                   }}
                   className={cn(
                     'flex items-center gap-3 px-3 py-2.5 border-b last:border-b-0 transition-colors outline-none',
-                    bound
+                    disabled
                       ? 'opacity-50 cursor-not-allowed'
                       : 'cursor-pointer hover:bg-muted/50 focus-visible:bg-muted/50',
-                    selected && !bound && 'bg-muted'
+                    selected && !disabled && 'bg-muted'
                   )}
                 >
                   {/* Type icon chip */}
@@ -189,9 +218,16 @@ export function SourcePicker({ boundSourceIds, value, onChange }: SourcePickerPr
                           already in library
                         </Badge>
                       )}
+                      {mismatch && !bound && (
+                        <Badge variant="outline" className="text-xs shrink-0 text-muted-foreground">
+                          different embedding model
+                        </Badge>
+                      )}
                     </div>
-                    <p className="text-xs text-muted-foreground/70 mt-0.5">
-                      {source.chunk_count} chunks
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {mismatch && !bound
+                        ? `Uses ${source.embedding_provider}/${source.embedding_model} — does not match this library`
+                        : `${source.chunk_count} chunks`}
                     </p>
                   </div>
                 </li>

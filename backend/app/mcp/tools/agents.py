@@ -46,7 +46,10 @@ def _agent_to_dict(agent, service: AgentService) -> dict:
     description="List all agents with pagination. Supports limit/offset pagination (default: limit=50, offset=0).",
     annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
 )
-async def agentbase_list_agents(limit: int = 50, offset: int = 0) -> dict:
+async def agentbase_list_agents(
+    limit: Annotated[int, Field(ge=1, le=500)] = 50,
+    offset: Annotated[int, Field(ge=0)] = 0,
+) -> dict:
     """List all agents with pagination.
 
     Returns:
@@ -261,15 +264,34 @@ async def agentbase_bind_knowledge_to_agent(
     annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
 )
 async def agentbase_bind_knowledge_base(agent_id: str, library_id: str) -> dict:
-    """Bind a library to an agent. Returns 'bound' or 'already_bound'."""
+    """Bind a library to an agent. Returns 'bound' or 'already_bound'.
+
+    Distinguishes missing agent, missing library, and already-bound. The
+    service returns None for all three, so the tool checks each case first.
+    """
     check_mcp_scope(Scope.WRITE)
+    from sqlalchemy import select
+    from app.models import Library
+
     async with async_session_maker() as db:
         service = AgentService(db)
+        agent = await service.get_agent(agent_id)
+        if not agent:
+            return {"error": f"Agent not found: {agent_id}"}
+
+        kb_result = await db.execute(select(Library).where(Library.id == library_id))
+        if kb_result.scalar_one_or_none() is None:
+            return {"error": f"Library not found: {library_id}"}
+
+        already_bound = any(
+            getattr(binding, "library_id", None) == library_id
+            for binding in (getattr(agent, "library_bindings", None) or [])
+        )
+        if already_bound:
+            return {"status": "already_bound", "agent_id": agent_id, "library_id": library_id}
+
         binding = await service.bind_knowledge_base(agent_id, library_id)
         if binding is None:
-            agent = await service.get_agent(agent_id)
-            if not agent:
-                return {"error": f"Agent not found: {agent_id}"}
             return {"status": "already_bound", "agent_id": agent_id, "library_id": library_id}
         return {"status": "bound", "agent_id": agent_id, "library_id": library_id}
 
@@ -293,7 +315,11 @@ async def agentbase_unbind_knowledge_base(agent_id: str, library_id: str) -> dic
     description="List all libraries bound to an agent with pagination. Supports limit/offset pagination (default: limit=50, offset=0).",
     annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
 )
-async def agentbase_list_agent_knowledge_bases(agent_id: str, limit: int = 50, offset: int = 0) -> dict:
+async def agentbase_list_agent_knowledge_bases(
+    agent_id: str,
+    limit: Annotated[int, Field(ge=1, le=500)] = 50,
+    offset: Annotated[int, Field(ge=0)] = 0,
+) -> dict:
     """Return all libraries bound to the specified agent with pagination.
 
     Returns:
