@@ -26,6 +26,8 @@ EXEMPT_FILES = {
     # Public, read-only catalog of repo-bundled agent skills (.claude/skills/*);
     # serves the same non-secret static content shown on the Agent Skills page
     "skills.py",
+    # MCP OAuth 2.1 for Gemini Spark — discovery/DCR/consent/token must be public
+    "mcp_oauth.py",
     # Agent query uses its own X-API-Key + agent-scoped auth
     "agents/query.py",
     # Router init files (no route handlers)

@@ -26,7 +26,7 @@ from sqlalchemy import select
 from app.core.config import get_settings
 from app.core.database import init_db, async_session_maker
 from app.core.encryption import decrypt_if_encrypted
-from app.api import projects, providers, sources, prompts, agents, config, events, docs, jobs, metadata, auth, experiments, skills
+from app.api import projects, providers, sources, prompts, agents, config, events, docs, jobs, metadata, auth, experiments, skills, mcp_oauth
 from app.api import taxonomy as taxonomy_api
 from app.api import library
 from app.api import evaluation
@@ -423,6 +423,7 @@ app.include_router(skills.router, prefix="/api/skills", tags=["Skills"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["Jobs"])
 app.include_router(metadata.router, prefix="/api/metadata", tags=["Metadata"])
 app.include_router(auth.router, prefix="/api", tags=["Auth"])
+app.include_router(mcp_oauth.router)
 app.include_router(taxonomy_api.router, prefix="/api/taxonomies", tags=["Taxonomy"])
 app.include_router(library.router, prefix="/api", tags=["Libraries"])
 app.include_router(evaluation.router, prefix="/api/evaluation", tags=["Evaluation"])
@@ -499,10 +500,21 @@ class _MCPAuthWrapper:
                         await receive()
                         await send({"type": "websocket.close", "code": 1008})
                         return
+                    from app.api.mcp_oauth import public_origin_from_headers
+                    origin = public_origin_from_headers(
+                        headers,
+                        fallback_scheme=req.url.scheme,
+                        fallback_host=req.url.netloc,
+                    )
                     response = JSONResponse(
                         status_code=401,
                         content={"detail": "API key required"},
-                        headers={"WWW-Authenticate": "Bearer"},
+                        headers={
+                            "WWW-Authenticate": (
+                                f'Bearer realm="mcp", resource_metadata="'
+                                f'{origin}/.well-known/oauth-protected-resource"'
+                            ),
+                        },
                     )
                     await response(scope, receive, send)
                     return
@@ -537,3 +549,10 @@ async def root():
         "docs": "/docs",
         "health": "/health",
     }
+
+
+@app.head("/")
+async def root_head(request: Request):
+    """Spark probes HEAD / and expects 401 + resource_metadata (RFC 9728)."""
+    from app.api.mcp_oauth import public_origin, unauthorized
+    return unauthorized(public_origin(request))

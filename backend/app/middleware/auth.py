@@ -26,6 +26,10 @@ logger = structlog.get_logger()
 # Paths that never require authentication
 EXEMPT_PATHS = {"/health", "/", "/docs", "/redoc", "/openapi.json"}
 
+# Path prefixes that never require the global AUTH_TOKEN / API-key gate
+# (MCP OAuth discovery, DCR, consent, and token exchange must be public).
+EXEMPT_PREFIXES = ("/.well-known/", "/oauth/", "/api/oauth/")
+
 # Path prefixes that require authentication when AUTH_TOKEN is set
 PROTECTED_PREFIXES = ("/api/", "/mcp")
 
@@ -38,7 +42,7 @@ class BearerTokenMiddleware(BaseHTTPMiddleware):
         path = request.url.path
 
         # Check if path is exempt
-        if path in EXEMPT_PATHS:
+        if path in EXEMPT_PATHS or any(path.startswith(p) for p in EXEMPT_PREFIXES):
             return await call_next(request)
 
         # Check if path requires authentication

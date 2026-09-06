@@ -165,6 +165,8 @@ claude mcp add --transport http agentbase https://your-host/mcp \
   --header "Authorization: Bearer <your-api-key>"
 ```
 
+**Gemini Spark (gemini.google.com Connected Apps):** Spark requires a public HTTPS URL and MCP OAuth 2.1 (browser consent). Agentbase serves the discovery/DCR/authorize/token endpoints. Expose the backend on public HTTPS, then paste `https://<public-host>/mcp`. On the consent page, enter a platform API key with write scope. There is no username.
+
 **Discover workflows:** once connected, call the `agentbase_get_workflow_guide` tool with no arguments to list step-by-step recipes (build a library from web or files, configure an agent, run evaluations and experiments, taxonomy setup, maintenance), or pass a goal like `"evaluate my agent"` to get the matching recipe.
 
 ## Data Persistence

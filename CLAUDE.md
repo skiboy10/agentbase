@@ -127,6 +127,7 @@ See ARCHITECTURE.md for patterns + file size guidelines.
 /api/metadata      - Metadata schema management
 /api/auth          - API key management (create, list, revoke, bootstrap)
 /mcp               - MCP server (84 tools, all prefixed agentbase_*, across auth, projects, agents, libraries, sources, source_ops, sources_docs, sources_upload, taxonomy, evaluation, guide, discovery)
+/oauth, /.well-known/oauth-*  - MCP OAuth 2.1 for Gemini Spark (DCR + PKCE; consent uses a platform API key)
 ```
 
 See [API.md](./API.md) for complete spec.
