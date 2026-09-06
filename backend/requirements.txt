@@ -57,7 +57,8 @@ tenacity>=9.0.0
 structlog>=26.1.0
 
 # MCP (Model Context Protocol)
-mcp>=1.27.0
+# FastMCP lives in 1.x; pip installing mcp 2.x breaks app.mcp.server (CI).
+mcp>=1.27.0,<2
 
 # Development & Testing
 pytest>=9.0.0
