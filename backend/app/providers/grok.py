@@ -18,6 +18,10 @@ logger = structlog.get_logger()
 
 # Known Grok models
 GROK_MODELS = {
+    # Current flagship (xAI docs: default chat/code model)
+    "grok-4.6": {"context": 524288, "capabilities": ["coding", "reasoning"]},
+    "grok-4.5": {"context": 524288, "capabilities": ["coding", "reasoning"]},
+    "grok-4.3": {"context": 1048576, "capabilities": ["coding", "reasoning"]},
     # Grok-4 series
     "grok-4-0709": {"context": 131072, "capabilities": ["coding", "reasoning"]},
     "grok-4-fast-reasoning": {"context": 131072, "capabilities": ["coding", "reasoning"]},
@@ -106,7 +110,17 @@ class GrokProvider(LLMProvider):
 
         try:
             response = await client.post("/chat/completions", json=payload)
-            response.raise_for_status()
+            if response.status_code >= 400:
+                detail = (response.text or response.reason_phrase)[:800]
+                logger.error(
+                    "Grok chat error",
+                    status=response.status_code,
+                    error=detail,
+                    model=model,
+                )
+                raise ValueError(
+                    f"Grok {model} failed (HTTP {response.status_code}): {detail}"
+                )
             data = response.json()
 
             return ChatResponse(
