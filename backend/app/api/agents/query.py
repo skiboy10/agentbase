@@ -73,6 +73,7 @@ async def query_agent(
             query=data.query,
             filters=data.filters,
             session_id=data.session_id,
+            history=[t.model_dump() for t in (data.history or [])],
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

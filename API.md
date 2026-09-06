@@ -2016,6 +2016,34 @@ POST /api/agents/{agent_id}/duplicate
 
 > **Note:** Returns `403 Forbidden` for external requests (via tunnel).
 
+### Query Agent
+
+```
+POST /api/agents/{agent_id}/query
+```
+
+RAG-grounded Q&A. Retrieval uses `query` (plus the last user turn in `history` when present). The LLM sees `history` then the current `query`.
+
+**Request Body:**
+```json
+{
+  "query": "Who issues the permit?",
+  "history": [
+    {"role": "user", "content": "Does ACME township require a permit for electrical work?"},
+    {"role": "assistant", "content": "Yes — electrical work needs a permit."}
+  ]
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `query` | string | yes | Current question (max 8000) |
+| `history` | array | no | Prior `{role, content}` turns (`user` or `assistant`, max 12). Server keeps the last 8 well-formed turns. |
+| `session_id` | string | no | Reserved; not used for retrieval |
+| `filters` | object | no | Reserved metadata filters |
+
+External requests need the agent's query key as `X-API-Key`. Internal/LAN requests pass through.
+
 ### Create Agent API Key
 
 ```

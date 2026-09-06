@@ -2,7 +2,7 @@
 Pydantic schemas for Agent API endpoints.
 """
 
-from typing import Optional
+from typing import Literal, Optional
 from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 
@@ -151,9 +151,20 @@ class DetailedInvokeResponse(BaseModel):
 
 # ==================== Agent Query Schemas ====================
 
+class QueryHistoryTurn(BaseModel):
+    """One prior turn. Retrieval still uses `query`; the LLM sees these first."""
+    role: Literal["user", "assistant"]
+    content: str = Field(..., min_length=1, max_length=4000)
+
+
 class AgentQueryRequest(BaseModel):
-    """Agent query request — stateless RAG-grounded Q&A."""
-    query: str = Field(..., max_length=8000, description="The question to ask the agent")
+    """Agent query request — RAG-grounded Q&A, optional prior turns."""
+    query: str = Field(..., max_length=8000, description="The current question to retrieve and answer")
+    history: Optional[list[QueryHistoryTurn]] = Field(
+        default=None,
+        max_length=12,
+        description="Prior turns. RAG uses query (+ last user turn). The LLM sees history then query.",
+    )
     session_id: Optional[str] = Field(
         None,
         max_length=128,

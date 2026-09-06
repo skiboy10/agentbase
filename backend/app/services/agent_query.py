@@ -68,6 +68,45 @@ def _build_sources(results: list[SearchResult]) -> list[dict]:
     return list(seen.values())
 
 
+MAX_HISTORY_TURNS = 8
+MAX_TURN_CHARS = 4000
+
+
+def _normalize_history(history: Optional[list]) -> list[dict]:
+    """Keep the last few well-formed user/assistant turns."""
+    out: list[dict] = []
+    for item in history or []:
+        role = item.get("role") if isinstance(item, dict) else getattr(item, "role", None)
+        content = item.get("content") if isinstance(item, dict) else getattr(item, "content", None)
+        if role not in ("user", "assistant"):
+            continue
+        text = (content or "").strip()[:MAX_TURN_CHARS]
+        if text:
+            out.append({"role": role, "content": text})
+    return out[-MAX_HISTORY_TURNS:]
+
+
+def _retrieval_query(query: str, history: list[dict]) -> str:
+    """Search the current question, plus the last user turn so follow-ups retrieve."""
+    q = query.strip()
+    for turn in reversed(history):
+        if turn["role"] == "user" and turn["content"] != q:
+            combined = f"{turn['content']}\n{q}"
+            return combined[:8000]
+    return q
+
+
+def _llm_messages(query: str, history: list[dict]) -> list[ChatMessage]:
+    messages: list[ChatMessage] = []
+    for turn in history:
+        role = MessageRole.USER if turn["role"] == "user" else MessageRole.ASSISTANT
+        messages.append(ChatMessage(role=role, content=turn["content"]))
+    q = query.strip()
+    if not (messages and messages[-1].role == MessageRole.USER and messages[-1].content == q):
+        messages.append(ChatMessage(role=MessageRole.USER, content=q))
+    return messages
+
+
 class AgentQueryService:
     """
     Executes a query against an agent's knowledge base.
@@ -91,6 +130,7 @@ class AgentQueryService:
         session_id: Optional[str] = None,
         include_raw_results: bool = False,
         overrides: Optional[dict] = None,
+        history: Optional[list] = None,
     ) -> dict:
         """
         Execute a query against an agent.
@@ -101,6 +141,8 @@ class AgentQueryService:
             filters: Optional metadata filters (passed through; reserved for
                      future Qdrant payload filtering support)
             session_id: Optional session ID (reserved; not used for stateless queries)
+            history: Optional prior turns [{role, content}]. RAG uses the current
+                     query plus the last user turn; the LLM sees history then query.
             include_raw_results: If True, add "raw_results" — the unmodified,
                                  rank-ordered list[SearchResult] from the search
                                  (used by evaluation scorecards for retrieval
@@ -173,13 +215,16 @@ class AgentQueryService:
                 seen.add(sid)
                 source_ids.append(sid)
 
+        prior = _normalize_history(history)
+        rag_query = _retrieval_query(query, prior)
+
         # Search knowledge base
         rag_results: list[SearchResult] = []
         if agent.use_rag and source_ids:
             rag_service = RAGService(self.db)
             try:
                 rag_results = await rag_service.search_multi_embedding(
-                    query=query,
+                    query=rag_query,
                     source_ids=source_ids,
                     top_k=eff["rag_top_k"] or 5,
                 )
@@ -203,11 +248,12 @@ class AgentQueryService:
                 f"{context_block}\n\n"
                 "---\n\n"
                 "Use the documentation above to provide an accurate, sourced answer. "
-                "If the documentation does not cover the question, you may use your "
-                "general knowledge but indicate when you are doing so."
+                "Cite excerpts by their [n] numbers. If the documentation does not "
+                "cover the question, say it is not in the library. Do not invent "
+                "facts, specs, or code language that are not in the excerpts."
             )
 
-        messages = [ChatMessage(role=MessageRole.USER, content=query)]
+        messages = _llm_messages(query, prior)
 
         # Call LLM via provider gateway
         provider_service = ProviderService(self.db)

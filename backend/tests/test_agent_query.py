@@ -15,7 +15,11 @@ from app.services.agent_query import (
     AgentQueryService,
     _format_context,
     _build_sources,
+    _llm_messages,
+    _normalize_history,
+    _retrieval_query,
 )
+from app.providers.base import MessageRole
 from app.services.rag.types import SearchResult
 from tests.factories import AgentFactory, ProjectFactory
 
@@ -76,6 +80,39 @@ class TestFormatContext:
         )
         output = _format_context([r])
         assert "https://fallback.example.com" in output
+
+
+class TestHistoryHelpers:
+    def test_normalize_drops_junk_and_caps(self):
+        hist = _normalize_history([
+            {"role": "system", "content": "nope"},
+            {"role": "user", "content": "  first  "},
+            {"role": "assistant", "content": ""},
+            {"role": "assistant", "content": "ok"},
+        ])
+        assert hist == [
+            {"role": "user", "content": "first"},
+            {"role": "assistant", "content": "ok"},
+        ]
+
+    def test_retrieval_query_appends_last_user_turn(self):
+        q = _retrieval_query(
+            "What if I am only adding a generator?",
+            [
+                {"role": "user", "content": "Permit for electrical work in ACME township?"},
+                {"role": "assistant", "content": "Electrical work needs a permit."},
+            ],
+        )
+        assert "ACME township" in q
+        assert q.endswith("What if I am only adding a generator?")
+
+    def test_llm_messages_history_then_current(self):
+        msgs = _llm_messages(
+            "Who do I call?",
+            [{"role": "user", "content": "Need a permit?"}, {"role": "assistant", "content": "Yes."}],
+        )
+        assert [m.role for m in msgs] == [MessageRole.USER, MessageRole.ASSISTANT, MessageRole.USER]
+        assert msgs[-1].content == "Who do I call?"
 
 
 # ===========================================================================
