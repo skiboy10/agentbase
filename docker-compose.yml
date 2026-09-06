@@ -19,7 +19,8 @@ services:
     ports:
       - "${FRONTEND_PORT:-3002}:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     environment:
       # Substituted into nginx.conf at container start so the backend can
       # verify the request came through nginx (#49). Must match the value
@@ -85,9 +86,10 @@ services:
           - agentbase-backend
     healthcheck:
       test: [ "CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()" ]
-      interval: 30s
+      interval: 10s
       timeout: 10s
-      retries: 3
+      retries: 12
+      start_period: 40s
     deploy:
       resources:
         limits:
@@ -106,10 +108,11 @@ services:
     volumes:
       - ./data/postgres:/var/lib/postgresql/data # Bind mount for data persistence
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agentbase} -d ${POSTGRES_DB:-agentbase}" ]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agentbase} -d ${POSTGRES_DB:-agentbase} && psql -U ${POSTGRES_USER:-agentbase} -d ${POSTGRES_DB:-agentbase} -c 'SELECT 1'" ]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 18
+      start_period: 20s
     networks:
       - agentbase-network
     deploy:

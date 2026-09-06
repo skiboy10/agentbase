@@ -119,6 +119,10 @@ logs/
 # Docker
 # -----------------------------------------------------------------------------
 docker-compose.override.yml
+# Machine-local boot: host paths and optional external-disk archive bind.
+# Do not commit — see CONTRIBUTING.md (instance config stays local).
+docker-compose.archive.yml
+scripts/wait-and-start.sh
 
 # -----------------------------------------------------------------------------
 # Secrets & Credentials

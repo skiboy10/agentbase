@@ -144,10 +144,30 @@ async def lifespan(app: FastAPI):
         else:
             logger.warning("SECRET_KEY is still a default value. Set a unique SECRET_KEY in .env.")
 
-    # Run Alembic migrations (in thread pool — Alembic uses asyncio.run() internally)
+    # Run Alembic migrations (in thread pool — Alembic uses asyncio.run() internally).
+    # Postgres can still report "starting up" for a few seconds after pg_isready;
+    # retry so a boot race does not take MCP down.
     logger.info("Running database migrations...")
     loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, _run_alembic_migrations)
+    for attempt in range(1, 31):
+        try:
+            await loop.run_in_executor(None, _run_alembic_migrations)
+            break
+        except Exception as exc:
+            msg = str(exc).lower()
+            retryable = (
+                "the database system is starting up" in msg
+                or "connection refused" in msg
+                or "could not connect" in msg
+            )
+            if not retryable or attempt == 30:
+                raise
+            logger.warning(
+                "Database not ready for migrations; retrying",
+                attempt=attempt,
+                error=str(exc),
+            )
+            await asyncio.sleep(2)
     # Restore log level — Alembic's fileConfig sets root to WARN, silencing INFO
     import logging as _logging
     _logging.getLogger().setLevel(_logging.INFO)

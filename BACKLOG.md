@@ -32,15 +32,12 @@ Tracked as GitHub Issues (labeled `public-roadmap`); titles listed here for orie
 ### Features
 - **Agent Query page** — chat-style conversation interface for agents
 - **Agentic knowledge curation** — auto-discover sources and build collections
-- **Cross-library source sharing, Stage 2** — UI + embedding-lock enforcement on top of the shipped many-to-many schema
 - **Provenance metadata schema** — required fields on ingest for knowledge sources
 - **Default classifier model assignment** — design + implementation
 - **Store indexed chunks in PostgreSQL** — for auditing and comparison alongside Qdrant
 
 ### Platform & Security Hardening
 - **Enforce per-key `rate_limit_rpm`** on platform API keys (stored today, not enforced)
-- **MCP auth hardening** — fail-closed `check_mcp_scope`, per-route scope lint
-- **MCP tool edge cases** — error paths, pagination clamps, lazy-load review
 
 ### Code Health
 - **Migrate hand-rolled forms** to react-hook-form + zod + shadcn Form
