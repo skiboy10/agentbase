@@ -8,8 +8,9 @@ Provides tools for:
 - Freshness & coverage analysis
 """
 
-from typing import Optional
+from typing import Annotated, Optional
 import structlog
+from pydantic import Field
 
 from app.mcp.server import mcp
 from app.core.database import async_session_maker
@@ -459,7 +460,7 @@ async def agentbase_re_enrich_source(source_id: str) -> dict:
         On error: {"error": str}
     """
     check_mcp_scope(Scope.WRITE)
-    from datetime import datetime
+    from datetime import datetime, timezone
     from app.services import IngestionService
     from app.services.job_service import JobService
 
@@ -498,7 +499,7 @@ async def agentbase_re_enrich_source(source_id: str) -> dict:
         source.progress = 0
         source.progress_total = 0
         source.progress_message = "Re-enrichment queued"
-        source.progress_updated_at = datetime.utcnow()
+        source.progress_updated_at = datetime.now(timezone.utc)
 
         job_service = JobService(db)
         job = await job_service.enqueue(
@@ -655,7 +656,9 @@ async def agentbase_start_watcher(source_id: str) -> dict:
     async with async_session_maker() as db:
         svc = IngestionService(db)
         source = await svc.get_source(source_id)
-        if source and getattr(source, "parent_source_id", None):
+        if source is None:
+            return {"error": f"Source not found: {source_id}"}
+        if getattr(source, "parent_source_id", None):
             return {
                 "error": (
                     f"Source {source_id} is a sub-source; start the parent watcher at "
@@ -744,8 +747,8 @@ async def agentbase_force_sync_watcher(source_id: str, allow_mass_delete: bool =
 async def agentbase_list_stale_sources(
     library_id: Optional[str] = None,
     freshness_policy: Optional[str] = None,
-    limit: int = 50,
-    offset: int = 0,
+    limit: Annotated[int, Field(ge=1, le=500)] = 50,
+    offset: Annotated[int, Field(ge=0)] = 0,
 ) -> dict:
     """List sources that need attention based on freshness policy, with pagination.
 
@@ -819,11 +822,10 @@ async def agentbase_get_library_coverage(library_id: str) -> dict:
 )
 async def agentbase_list_watcher_events(
     source_id: str,
-    limit: int = 100,
+    limit: Annotated[int, Field(ge=1, le=500)] = 100,
 ) -> dict:
     """Return watcher event log for a source, newest first."""
     check_mcp_scope(Scope.READ)
-    from datetime import datetime as _dt
     from sqlalchemy import select as _select, desc as _desc
     from app.models import WatcherEvent as _WatcherEvent
 
@@ -832,7 +834,7 @@ async def agentbase_list_watcher_events(
             _select(_WatcherEvent)
             .where(_WatcherEvent.source_id == source_id)
             .order_by(_desc(_WatcherEvent.timestamp))
-            .limit(min(limit, 500))
+            .limit(limit)
         )
         result = await db.execute(stmt)
         rows = result.scalars().all()

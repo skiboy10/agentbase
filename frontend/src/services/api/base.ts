@@ -31,6 +31,61 @@ export function clearStoredApiKey(): void {
 }
 
 /**
+ * HTTP error with the FastAPI body attached.
+ *
+ * FastAPI string details stay a human message. Object details (e.g. 409
+ * EMBEDDING_MISMATCH) put the inner dict on `body` so callers can read
+ * `error_code` / `suggested_action` without stringifying `[object Object]`.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly body: unknown;
+  readonly errorCode: string | undefined;
+  readonly suggestedAction: string | undefined;
+
+  constructor(message: string, status: number, body?: unknown) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.body = body;
+    const payload =
+      body && typeof body === 'object' ? (body as Record<string, unknown>) : undefined;
+    this.errorCode =
+      typeof payload?.error_code === 'string' ? payload.error_code : undefined;
+    this.suggestedAction =
+      typeof payload?.suggested_action === 'string' ? payload.suggested_action : undefined;
+  }
+}
+
+/**
+ * Turn a FastAPI `{ detail }` body into an Error whose message is always a string.
+ *
+ * - `detail` string → that string
+ * - `detail` object with a string `detail` field (incl. EMBEDDING_MISMATCH) → that field
+ * - otherwise → `HTTP {status}` (never `[object Object]`)
+ */
+export function apiErrorFromBody(status: number, error: unknown): ApiError {
+  const fallback = `HTTP ${status}`;
+  if (!error || typeof error !== 'object') {
+    return new ApiError(fallback, status, error);
+  }
+
+  const detail = (error as { detail?: unknown }).detail;
+
+  if (typeof detail === 'string' && detail) {
+    return new ApiError(detail, status, error);
+  }
+
+  if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+    const payload = detail as Record<string, unknown>;
+    const human = typeof payload.detail === 'string' ? payload.detail : undefined;
+    return new ApiError(human || fallback, status, payload);
+  }
+
+  return new ApiError(fallback, status, error);
+}
+
+/**
  * Generic fetch wrapper with error handling and auth header injection
  */
 interface ApiFetchOptions extends RequestInit {
@@ -73,7 +128,7 @@ export async function apiFetch<T>(
       throw new Error('Authentication required');
     }
     const error = await response.json().catch(() => ({ detail: 'Request failed' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
+    throw apiErrorFromBody(response.status, error);
   }
 
   // Handle 204 No Content

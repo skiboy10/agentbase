@@ -11,6 +11,9 @@
  * - api/*.ts - API namespace implementations
  */
 
+// Re-export shared error type (structured FastAPI bodies, e.g. 409 EMBEDDING_MISMATCH)
+export { ApiError } from './base';
+
 // Re-export API namespaces
 export { providersApi } from './providers';
 export { sourcesApi } from './sources';

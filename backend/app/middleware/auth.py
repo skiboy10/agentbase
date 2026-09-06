@@ -19,7 +19,7 @@ import structlog
 
 from app.core.config import get_settings
 from app.core.database import async_session_maker
-from app.core.auth import set_current_auth, AUTH_TOKEN_SENTINEL
+from app.core.auth import set_current_auth, reset_current_auth, AUTH_TOKEN_SENTINEL
 
 logger = structlog.get_logger()
 
@@ -60,14 +60,25 @@ class BearerTokenMiddleware(BaseHTTPMiddleware):
             # Middleware validates and stores the resolved APIKey for downstream dependencies.
             return await self._api_key_mode(request, call_next, token)
 
+    async def _call_with_auth(self, request, call_next, auth):
+        """Set auth context for call_next and always reset afterwards.
+
+        Same token/finally pattern as _MCPAuthWrapper: without reset, the
+        contextvar leaks into reused event-loop tasks.
+        """
+        ctx_token = set_current_auth(auth)
+        try:
+            return await call_next(request)
+        finally:
+            reset_current_auth(ctx_token)
+
     async def _auth_token_mode(self, request, call_next, token, settings):
         """AUTH_TOKEN is set: middleware must fully validate."""
         # Trusted-network bypass: internal containers skip the global token gate
         from app.core.auth import _is_external_request
         if not _is_external_request(request):
             request.state.auth_method = "auth_token"
-            set_current_auth(AUTH_TOKEN_SENTINEL)
-            return await call_next(request)
+            return await self._call_with_auth(request, call_next, AUTH_TOKEN_SENTINEL)
 
         if token is None:
             return JSONResponse(
@@ -79,16 +90,14 @@ class BearerTokenMiddleware(BaseHTTPMiddleware):
         # Check 1: Does it match the global AUTH_TOKEN? (timing-safe)
         if secrets_mod.compare_digest(token, settings.auth_token):
             request.state.auth_method = "auth_token"
-            set_current_auth(AUTH_TOKEN_SENTINEL)
-            return await call_next(request)
+            return await self._call_with_auth(request, call_next, AUTH_TOKEN_SENTINEL)
 
         # Check 2: Is it a valid platform API key? (DB lookup)
         api_key = await self._validate_api_key(token)
         if api_key is not None:
             request.state.api_key = api_key
             request.state.auth_method = "api_key"
-            set_current_auth(api_key)
-            return await call_next(request)
+            return await self._call_with_auth(request, call_next, api_key)
 
         # Neither matched
         logger.warning("Invalid auth attempt", path=request.url.path)
@@ -110,14 +119,16 @@ class BearerTokenMiddleware(BaseHTTPMiddleware):
             api_key = await self._validate_api_key(token)
             if api_key is not None:
                 request.state.api_key = api_key
-                set_current_auth(api_key)
+                return await self._call_with_auth(request, call_next, api_key)
         else:
             # No token provided — grant full access for internal/LAN requests
             # so MCP tools (which use check_mcp_scope via contextvars, not
             # FastAPI's require_scope dependency) can authorize write ops.
             from app.core.auth import _is_external_request
             if not _is_external_request(request):
-                set_current_auth(AUTH_TOKEN_SENTINEL)
+                return await self._call_with_auth(
+                    request, call_next, AUTH_TOKEN_SENTINEL
+                )
         # Pass through — let endpoint require_scope() dependencies decide
         return await call_next(request)
 

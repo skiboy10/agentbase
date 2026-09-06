@@ -83,7 +83,15 @@ export default function SettingsTab({ kb, onKbUpdated, onError }: SettingsTabPro
               )}
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground/60">No embedding model configured.</p>
+            <div className="space-y-1.5">
+              <Badge variant="outline" className="text-xs text-muted-foreground">
+                Unlocked
+              </Badge>
+              <p className="text-xs text-muted-foreground">
+                This library has no embedding model yet. The first source you bind
+                will lock the model permanently; later sources must use the same model.
+              </p>
+            </div>
           )}
         </CardContent>
       </Card>
