@@ -2505,7 +2505,7 @@ All endpoints return consistent error responses:
 
 ## Rate Limiting
 
-Rate limiting is configured via slowapi. High-cost endpoints (e.g. library chat) carry per-route, per-IP limits. Platform API keys accept a `rate_limit_rpm` field at creation; it is stored but per-key enforcement is not yet wired up (tracked on the roadmap).
+Rate limiting is configured via slowapi. High-cost endpoints (e.g. library chat) carry per-route, per-IP limits. Platform API keys accept an optional `rate_limit_rpm` at creation; when set to a positive integer, Bearer auth and MCP both enforce a per-key sliding window (429 + `Retry-After` on breach). Null or ≤0 means unlimited. Limits are in-process (single replica); multi-replica shared limiting is out of scope.
 
 ---
 

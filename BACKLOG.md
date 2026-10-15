@@ -37,7 +37,7 @@ Tracked as GitHub Issues (labeled `public-roadmap`); titles listed here for orie
 - **Store indexed chunks in PostgreSQL** — for auditing and comparison alongside Qdrant
 
 ### Platform & Security Hardening
-- **Enforce per-key `rate_limit_rpm`** on platform API keys (stored today, not enforced)
+- **Enforce per-key `rate_limit_rpm`** on platform API keys — #10 (implementation in flight)
 
 ### Code Health
 - **Migrate hand-rolled forms** to react-hook-form + zod + shadcn Form
