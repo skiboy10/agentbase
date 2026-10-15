@@ -62,6 +62,16 @@ rolling back the code without rolling back the schema is safe. If a release
 notes a breaking migration, restore the database from a backup taken before
 upgrading instead.
 
+## Qdrant image upgrades
+
+The optional Compose Qdrant service is pinned (e.g. `qdrant/qdrant:v1.19.2`),
+not `:latest`. When bumping the pin, upgrade **one minor at a time** (for
+example 1.17 → 1.18 → 1.19) — Qdrant storage format changes
+(RocksDB → Gridstore) and gRPC field removals can break direct jumps.
+
+If you set `QDRANT_API_KEY` in `.env`, the included Qdrant container and the
+backend (`qdrant_api_key` / `QDRANT_API_KEY`) must share the same value.
+
 ## For contributors
 
 Development never happens in a live checkout. See

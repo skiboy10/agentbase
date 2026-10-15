@@ -8,13 +8,12 @@ This module provides:
 - Text chunking with LangChain
 """
 import hashlib
-from typing import Optional
 from datetime import datetime
-from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, TextIndexParams, TextIndexType, TokenizerType
 import structlog
 
 from app.core.config import get_settings
+from app.core.qdrant import get_qdrant_client
 from app.providers.embedding_registry import get_embedding_registry
 from app.services.rag.filters import KEYWORD_INDEX_FIELDS
 
@@ -22,26 +21,12 @@ settings = get_settings()
 logger = structlog.get_logger()
 
 
-# Qdrant client singleton
-_qdrant_client: Optional[QdrantClient] = None
-
-
-def get_qdrant_client() -> QdrantClient:
-    """Get or create Qdrant client."""
-    global _qdrant_client
-    if _qdrant_client is None:
-        _qdrant_client = QdrantClient(
-            url=settings.qdrant_url,
-            api_key=settings.qdrant_api_key if settings.qdrant_api_key else None,
-        )
-    return _qdrant_client
-
-
 class EmbeddingProcessor:
     """
     Handles embedding generation and Qdrant operations.
 
-    Shared by all indexers (directory, file, URL).
+    Shared by all indexers (directory, file, URL). Uses the canonical
+    ``get_qdrant_client`` singleton from ``app.core.qdrant``.
     """
 
     def __init__(self):

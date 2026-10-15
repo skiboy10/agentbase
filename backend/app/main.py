@@ -125,24 +125,32 @@ async def lifespan(app: FastAPI):
     """Application lifecycle management."""
     logger.info("Starting Agentbase", version=__version__)
 
-    # Validate SECRET_KEY
-    _insecure_keys = {"changeme-in-production", "changeme-generate-a-real-secret-key"}
-    if not settings.secret_key:
-        # Generate ephemeral key — sessions won't survive restarts
-        _ephemeral_key = secrets.token_urlsafe(32)
-        # Store on module-level since BaseSettings may be frozen
-        object.__setattr__(settings, "secret_key", _ephemeral_key)
-        logger.warning("SECRET_KEY not set — using ephemeral key. API keys and encrypted credentials will not survive restarts. Set SECRET_KEY in .env for persistence.")
-    elif settings.secret_key in _insecure_keys:
-        if settings.external_hostname:
-            logger.error(
-                "CRITICAL: SECRET_KEY is a known default and EXTERNAL_HOSTNAME is set. "
-                "API keys and encrypted credentials are at risk. "
-                "Set a unique SECRET_KEY in .env before exposing this instance. "
-                "Generate one with: openssl rand -hex 32"
-            )
-        else:
-            logger.warning("SECRET_KEY is still a default value. Set a unique SECRET_KEY in .env.")
+    # Validate SECRET_KEY (#35). Refuse to boot when externally exposed with a
+    # missing / known-default key; local/dev may still use an ephemeral key.
+    from app.core.secret_key import (
+        INSECURE_SECRET_KEYS,
+        InsecureSecretKeyError,
+        validate_secret_key,
+    )
+
+    _original_secret = settings.secret_key or ""
+    try:
+        _resolved_secret = validate_secret_key(
+            settings.secret_key,
+            external_hostname=settings.external_hostname,
+        )
+    except InsecureSecretKeyError as exc:
+        logger.error("FATAL: %s", str(exc))
+        raise SystemExit(1) from exc
+
+    if _resolved_secret != _original_secret:
+        object.__setattr__(settings, "secret_key", _resolved_secret)
+        logger.warning(
+            "SECRET_KEY not set — using ephemeral key. API keys and encrypted "
+            "credentials will not survive restarts. Set SECRET_KEY in .env for persistence."
+        )
+    elif _original_secret in INSECURE_SECRET_KEYS:
+        logger.warning("SECRET_KEY is still a default value. Set a unique SECRET_KEY in .env.")
 
     # Run Alembic migrations (in thread pool — Alembic uses asyncio.run() internally).
     # Postgres can still report "starting up" for a few seconds after pg_isready;

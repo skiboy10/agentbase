@@ -31,12 +31,19 @@ logger = structlog.get_logger()
 # ---------------------------------------------------------------------------
 _SUPPORTS_NATIVE_FUSION = False
 _SUPPORTS_QUERY_GROUPS = False
+_qdrant_version = "unknown"
+
+try:
+    import importlib.metadata as _importlib_metadata
+    _qdrant_version = _importlib_metadata.version("qdrant-client")
+except Exception:
+    pass
 
 try:
     from qdrant_client import models as _qdm
     # Prefetch and FusionQuery classes exist in qdrant-client 1.9.x but
     # query_filter on Prefetch is not supported in all versions.
-    # Disabled until verified with the deployed Qdrant server version.
+    # Disabled until verified with the deployed Qdrant server version (#33).
     # if hasattr(_qdm, "Prefetch") and hasattr(_qdm, "FusionQuery"):
     #     _SUPPORTS_NATIVE_FUSION = True
     pass
