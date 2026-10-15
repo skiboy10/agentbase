@@ -477,6 +477,24 @@ class _MCPAuthWrapper:
                         service = AuthService(session)
                         api_key = await service.validate_key(token)
                         if api_key:
+                            # Per-key rate limit (#10). BaseHTTPMiddleware does
+                            # not intercept mounted /mcp, so enforce here too.
+                            from app.core.rate_limit import (
+                                api_key_rate_limiter,
+                                rate_limit_response,
+                            )
+                            allowed, retry_after = api_key_rate_limiter.check(
+                                api_key.id,
+                                getattr(api_key, "rate_limit_rpm", None),
+                            )
+                            if not allowed:
+                                if scope["type"] == "websocket":
+                                    await receive()
+                                    await send({"type": "websocket.close", "code": 1008})
+                                    return
+                                response = rate_limit_response(retry_after)
+                                await response(scope, receive, send)
+                                return
                             ctx_token = set_current_auth(api_key)
                     except Exception as e:
                         logger.error("MCP token validation failed", error=str(e))

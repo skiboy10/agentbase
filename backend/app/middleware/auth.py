@@ -95,6 +95,9 @@ class BearerTokenMiddleware(BaseHTTPMiddleware):
         # Check 2: Is it a valid platform API key? (DB lookup)
         api_key = await self._validate_api_key(token)
         if api_key is not None:
+            limited = self._enforce_rate_limit(api_key)
+            if limited is not None:
+                return limited
             request.state.api_key = api_key
             request.state.auth_method = "api_key"
             return await self._call_with_auth(request, call_next, api_key)
@@ -118,6 +121,9 @@ class BearerTokenMiddleware(BaseHTTPMiddleware):
             # by value — they must be verified against a candidate row).
             api_key = await self._validate_api_key(token)
             if api_key is not None:
+                limited = self._enforce_rate_limit(api_key)
+                if limited is not None:
+                    return limited
                 request.state.api_key = api_key
                 return await self._call_with_auth(request, call_next, api_key)
         else:
@@ -131,6 +137,23 @@ class BearerTokenMiddleware(BaseHTTPMiddleware):
                 )
         # Pass through — let endpoint require_scope() dependencies decide
         return await call_next(request)
+
+    def _enforce_rate_limit(self, api_key):
+        """Return a 429 response when the key's rate_limit_rpm is exceeded (#10)."""
+        from app.core.rate_limit import api_key_rate_limiter, rate_limit_response
+
+        allowed, retry_after = api_key_rate_limiter.check(
+            api_key.id, getattr(api_key, "rate_limit_rpm", None)
+        )
+        if allowed:
+            return None
+        logger.warning(
+            "API key rate limit exceeded",
+            key_id=api_key.id,
+            rate_limit_rpm=api_key.rate_limit_rpm,
+            retry_after=retry_after,
+        )
+        return rate_limit_response(retry_after)
 
     async def _validate_api_key(self, token: str):
         """Validate a platform API key against the database."""
