@@ -531,6 +531,84 @@ class BaseIndexer:
             chunk_overlap=settings.chunk_overlap,
         )
 
+    def _build_enrichment_config(self, source: Source):
+        """Build EnrichmentConfig from the source's enrichment settings.
+
+        Shared by file/directory/URL/YouTube indexers so enrichment_enabled
+        is honored consistently (#20).
+        """
+        from app.services.ingestion.enrichment import EnrichmentConfig
+
+        enabled = getattr(source, "enrichment_enabled", False) or False
+        return EnrichmentConfig(
+            enabled=enabled,
+            taxonomy_id=getattr(source, "enrichment_taxonomy_id", None),
+            classification_model=(
+                getattr(source, "enrichment_model", None)
+                or "qwen2.5:7b-instruct"
+            ),
+            # Clean text whenever enrichment is opted in (matches file indexer
+            # behavior when enrichment_enabled). When disabled, URL/YouTube
+            # skip enrichment entirely so indexing cost is unchanged (#20).
+            document_type_detection=enabled,
+        )
+
+    def _get_enrichment_service(self):
+        """Lazy EnrichmentService singleton on the indexer instance."""
+        from app.services.ingestion.enrichment import EnrichmentService
+
+        svc = getattr(self, "_enrichment_service", None)
+        if svc is None:
+            svc = EnrichmentService()
+            self._enrichment_service = svc
+        return svc
+
+    async def _run_enrichment(
+        self,
+        source: Source,
+        text: str,
+        filename: str,
+    ) -> dict:
+        """Run enrichment when enabled; return a normalized result dict.
+
+        Returns keys: cleaned_text, document_type, classification (dict|None),
+        enrichment_fields (kwargs for ``_save_scraped_content``).
+        When enrichment is off, returns the original text with empty fields.
+        """
+        enrich_cfg = self._build_enrichment_config(source)
+        # Match file/directory indexers: run when enrichment is on OR text
+        # cleaning is requested. Classification inside EnrichmentService only
+        # fires when enabled + taxonomy_id are set (#20).
+        if not (enrich_cfg.enabled or enrich_cfg.document_type_detection):
+            return {
+                "cleaned_text": text,
+                "document_type": "standard",
+                "classification": None,
+                "enrichment_fields": {},
+            }
+
+        enrich_result = await self._get_enrichment_service().enrich(
+            text=text,
+            filename=filename,
+            config=enrich_cfg,
+            db=self.db,
+        )
+        classification = enrich_result.get("classification") or None
+        enrichment_fields: dict = {}
+        if classification:
+            enrichment_fields = {
+                "classification": classification,
+                "classification_method": enrich_result.get("classification_method"),
+                "taxonomy_id": enrich_result.get("taxonomy_id"),
+                "classification_taxonomy_version": enrich_result.get("taxonomy_version"),
+            }
+        return {
+            "cleaned_text": enrich_result["cleaned_text"],
+            "document_type": enrich_result.get("document_type") or "standard",
+            "classification": classification,
+            "enrichment_fields": enrichment_fields,
+        }
+
     async def _save_scraped_content(
         self,
         source: Source,

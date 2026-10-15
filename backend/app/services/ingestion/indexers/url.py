@@ -276,12 +276,26 @@ class UrlIndexer(BaseIndexer):
                 log.updated_at = datetime.utcnow()
                 await self.db.flush()
 
+                # Enrichment (classification + optional text cleaning) when
+                # source.enrichment_enabled — URL path previously hard-coded
+                # classification=None (#20).
+                enrich = await self._run_enrichment(
+                    source, page.content, page.title or page.url,
+                )
+                page_text = enrich["cleaned_text"]
+                classification_payload = enrich["classification"] or {}
+                enrichment_fields = enrich["enrichment_fields"]
+                doc_type = enrich["document_type"]
+
                 # Save raw content to postgres for re-embedding experiments
                 await self._save_scraped_content(
                     source=source,
                     url=page.url,
                     title=page.title,
-                    content=page.content,
+                    content=page_text,
+                    file_type="url",
+                    document_type=doc_type,
+                    **enrichment_fields,
                 )
 
                 # Process content with code preservation
@@ -293,25 +307,25 @@ class UrlIndexer(BaseIndexer):
                     code_preservation_enabled=settings.code_preservation_enabled
                 )
                 chunks, chunk_metadata_list = self._process_page_content(
-                    page.content, page.html, page.url, text_splitter
+                    page_text, page.html, page.url, text_splitter
                 )
                 # Silent 0-chunk detector: page scraped successfully (we have
-                # bytes in page.content) but extraction produced nothing. This
+                # bytes in page_text) but extraction produced nothing. This
                 # is a real failure — the source would otherwise show
                 # status='indexed' with chunk_count=0 and be invisible at
                 # search time. Mark the log as failed so it's surfaced and
                 # eligible for retry-failed. See #105.
-                if not chunks and page.content and len(page.content.strip()) > 50:
+                if not chunks and page_text and len(page_text.strip()) > 50:
                     logger.warning(
                         "Page scraped successfully but produced 0 chunks — "
                         "likely a selector mismatch in extract_content",
                         url=page.url,
-                        scraped_chars=len(page.content),
+                        scraped_chars=len(page_text),
                         html_chars=len(page.html) if page.html else 0,
                     )
                     log.status = "failed"
                     log.error_message = (
-                        f"Extraction produced 0 chunks from {len(page.content)} "
+                        f"Extraction produced 0 chunks from {len(page_text)} "
                         f"scraped chars (likely selector mismatch)"
                     )
                     log.updated_at = datetime.utcnow()
@@ -332,6 +346,10 @@ class UrlIndexer(BaseIndexer):
                     ).hexdigest()
 
                     batch_chunks.append(chunk)
+                    nested_meta = dict(chunk_meta['metadata'] or {})
+                    if classification_payload:
+                        for key, val in classification_payload.items():
+                            nested_meta[key] = val
                     meta = {
                         "id": chunk_id,
                         "source": page.url,
@@ -339,8 +357,11 @@ class UrlIndexer(BaseIndexer):
                         "chunk_index": chunk_meta['chunk_index'],
                         "title": page.title,
                         "scraped_at": chunk_scraped_at,
-                        "metadata": chunk_meta['metadata'],
+                        "document_type": doc_type,
+                        "metadata": nested_meta,
                     }
+                    if classification_payload:
+                        meta["classification"] = classification_payload
                     if kb_aware and document_id and primary_kb:
                         meta["document_id"] = document_id
                         meta["library_id"] = primary_kb.id
@@ -383,18 +404,18 @@ class UrlIndexer(BaseIndexer):
                 # source is bound to. Done per URL so partial failures still
                 # leave a record of the URLs that did make it through.
                 if kb_aware and document_id:
-                    content_hash = self._compute_content_hash(page.content or "")
+                    content_hash = self._compute_content_hash(page_text or "")
                     await self._upsert_kb_documents(
                         source=source,
                         kbs=kbs,
                         document_id=document_id,
                         title=page.title or page.url,
-                        full_text=page.content or "",
+                        full_text=page_text or "",
                         content_hash=content_hash,
                         url=page.url,
                         file_type="url",
-                        document_type="standard",
-                        classification=None,
+                        document_type=doc_type,
+                        classification=classification_payload or None,
                         chunk_count=len(chunks),
                     )
 
@@ -553,30 +574,48 @@ class UrlIndexer(BaseIndexer):
                 log.updated_at = datetime.utcnow()
                 await self.db.flush()
 
+                enrich = await self._run_enrichment(
+                    source, page.content, page.title or page.url,
+                )
+                page_text = enrich["cleaned_text"]
+                classification_payload = enrich["classification"] or {}
+                enrichment_fields = enrich["enrichment_fields"]
+                doc_type = enrich["document_type"]
+
                 # Save raw content to postgres for re-embedding experiments
                 await self._save_scraped_content(
                     source=source,
                     url=page.url,
                     title=page.title,
-                    content=page.content,
+                    content=page_text,
+                    file_type="url",
+                    document_type=doc_type,
+                    **enrichment_fields,
                 )
 
-                chunks = text_splitter.split_text(page.content)
+                chunks = text_splitter.split_text(page_text)
                 log.chunk_count = len(chunks)
                 chunk_scraped_at = datetime.utcnow().isoformat()
 
                 for i, chunk in enumerate(chunks):
                     chunk_id = hashlib.md5(f"{page.url}:{i}".encode()).hexdigest()
-                    batch_chunks.append(chunk)
-                    batch_metadata.append({
+                    nested_meta = {}
+                    if classification_payload:
+                        nested_meta.update(classification_payload)
+                    meta = {
                         "id": chunk_id,
                         "source": page.url,
                         "source_id": source.id,
                         "chunk_index": i,
                         "title": page.title,
                         "scraped_at": chunk_scraped_at,
-                        "metadata": {},
-                    })
+                        "document_type": doc_type,
+                        "metadata": nested_meta,
+                    }
+                    if classification_payload:
+                        meta["classification"] = classification_payload
+                    batch_chunks.append(chunk)
+                    batch_metadata.append(meta)
                     batch_logs.append(log)
 
                     if len(batch_chunks) >= self.BATCH_SIZE:
@@ -803,31 +842,49 @@ class UrlIndexer(BaseIndexer):
                 log.updated_at = datetime.utcnow()
                 await self.db.flush()
 
+                enrich = await self._run_enrichment(
+                    source, page.content, page.title or page.url,
+                )
+                page_text = enrich["cleaned_text"]
+                classification_payload = enrich["classification"] or {}
+                enrichment_fields = enrich["enrichment_fields"]
+                doc_type = enrich["document_type"]
+
                 # Save raw content to postgres for re-embedding experiments
                 await self._save_scraped_content(
                     source=source,
                     url=page.url,
                     title=page.title,
-                    content=page.content,
+                    content=page_text,
+                    file_type="url",
+                    document_type=doc_type,
+                    **enrichment_fields,
                 )
 
-                chunks = text_splitter.split_text(page.content)
+                chunks = text_splitter.split_text(page_text)
                 log.chunk_count = len(chunks)
                 chunk_scraped_at = datetime.utcnow().isoformat()
 
                 for i, chunk in enumerate(chunks):
                     chunk_id = hashlib.md5(f"{page.url}:{i}".encode()).hexdigest()
 
-                    batch_chunks.append(chunk)
-                    batch_metadata.append({
+                    nested_meta = {}
+                    if classification_payload:
+                        nested_meta.update(classification_payload)
+                    meta = {
                         "id": chunk_id,
                         "source": page.url,
                         "source_id": source.id,
                         "chunk_index": i,
                         "title": page.title,
                         "scraped_at": chunk_scraped_at,
-                        "metadata": {},
-                    })
+                        "document_type": doc_type,
+                        "metadata": nested_meta,
+                    }
+                    if classification_payload:
+                        meta["classification"] = classification_payload
+                    batch_chunks.append(chunk)
+                    batch_metadata.append(meta)
                     batch_logs.append(log)
 
                     if len(batch_chunks) >= self.BATCH_SIZE:

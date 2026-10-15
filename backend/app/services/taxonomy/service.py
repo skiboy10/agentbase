@@ -167,8 +167,13 @@ class TaxonomyService:
 
         allowed = {"value", "parent_value", "keywords", "sort_order"}
         for key, value in kwargs.items():
-            if key in allowed:
-                setattr(term, key, value)
+            if key not in allowed:
+                continue
+            # Defense in depth for #21: never write NULL into NOT NULL sort_order
+            # even if a caller forwards an explicit None.
+            if key == "sort_order" and value is None:
+                continue
+            setattr(term, key, value)
 
         await db.flush()
         return term
