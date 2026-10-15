@@ -252,8 +252,8 @@ class YouTubeIndexer(BaseIndexer):
                 content_hash=dc.content_hash or "",
                 url=dc.url,
                 file_type="youtube",
-                document_type="transcript",
-                classification=None,
+                document_type=dc.document_type or "transcript",
+                classification=dc.classification,
                 chunk_count=chunks_by_url.get(dc.url, 0),
             )
 
@@ -401,9 +401,19 @@ class YouTubeIndexer(BaseIndexer):
                         await self.db.flush()
                         continue
 
+                    # Enrichment before chunk/embed when opted in (#20).
+                    enrich = await self._run_enrichment(
+                        source, text, title or watch_url,
+                    )
+                    page_text = enrich["cleaned_text"]
+                    classification_payload = enrich["classification"] or {}
+                    enrichment_fields = enrich["enrichment_fields"]
+                    # Keep transcript semantics unless enrichment provided a type.
+                    doc_type = "transcript"
+
                     # Chunk + embed (reuse BaseIndexer machinery).
-                    chunks = text_splitter.split_text(text)
-                    log.content_length = len(text)
+                    chunks = text_splitter.split_text(page_text)
+                    log.content_length = len(page_text)
                     document_id = self._generate_document_id(source.id, watch_url) if kb_aware else None
                     scraped_at = datetime.utcnow().isoformat()
 
@@ -411,6 +421,17 @@ class YouTubeIndexer(BaseIndexer):
                     batch_metadata: list[dict] = []
                     for i, chunk in enumerate(chunks):
                         chunk_id = hashlib.md5(f"{watch_url}:{i}".encode()).hexdigest()
+                        nested = {
+                            "type": "transcript",
+                            "video_id": vid,
+                            "channel_url": channel_url,
+                            "upload_date": meta.get("upload_date"),
+                            "duration": meta.get("duration"),
+                            # Filterable publish-date facets (year/month/int date)
+                            **date_facets(meta.get("upload_date")),
+                        }
+                        if classification_payload:
+                            nested.update(classification_payload)
                         meta_row = {
                             "id": chunk_id,
                             "source": watch_url,
@@ -418,16 +439,11 @@ class YouTubeIndexer(BaseIndexer):
                             "chunk_index": i,
                             "title": title,
                             "scraped_at": scraped_at,
-                            "metadata": {
-                                "type": "transcript",
-                                "video_id": vid,
-                                "channel_url": channel_url,
-                                "upload_date": meta.get("upload_date"),
-                                "duration": meta.get("duration"),
-                                # Filterable publish-date facets (year/month/int date)
-                                **date_facets(meta.get("upload_date")),
-                            },
+                            "document_type": doc_type,
+                            "metadata": nested,
                         }
+                        if classification_payload:
+                            meta_row["classification"] = classification_payload
                         if kb_aware and document_id and primary_kb:
                             meta_row["document_id"] = document_id
                             meta_row["library_id"] = primary_kb.id
@@ -449,15 +465,18 @@ class YouTubeIndexer(BaseIndexer):
 
                     # Persist raw transcript + KB Document row(s).
                     await self._save_scraped_content(
-                        source=source, url=watch_url, title=title, content=text,
+                        source=source, url=watch_url, title=title, content=page_text,
+                        file_type="youtube", document_type=doc_type,
+                        **enrichment_fields,
                     )
                     if kb_aware and document_id:
                         await self._upsert_kb_documents(
                             source=source, kbs=kbs, document_id=document_id,
-                            title=title, full_text=text,
-                            content_hash=self._compute_content_hash(text),
+                            title=title, full_text=page_text,
+                            content_hash=self._compute_content_hash(page_text),
                             url=watch_url, file_type="youtube",
-                            document_type="transcript", classification=None,
+                            document_type=doc_type,
+                            classification=classification_payload or None,
                             chunk_count=len(chunks),
                         )
 

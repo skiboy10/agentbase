@@ -330,15 +330,20 @@ async def update_term(
     db: AsyncSession = Depends(get_db),
     _auth: Optional[APIKey] = Depends(require_scope(Scope.WRITE)),
 ):
-    """Update a taxonomy term."""
+    """Update a taxonomy term.
+
+    Only fields present in the request body are forwarded so omitting
+    ``sort_order`` cannot clobber the NOT NULL column with NULL (#21).
+    """
+    data = body.model_dump(exclude_unset=True)
+    # API field ``label`` maps to the model column ``value``.
+    if "label" in data:
+        data["value"] = data.pop("label")
+    # TaxonomyTerm has no is_active column — drop if clients send it.
+    data.pop("is_active", None)
+
     svc = TaxonomyService()
-    term = await svc.update_term(db, 
-        term_id,
-        label=body.label,
-        keywords=body.keywords,
-        sort_order=body.sort_order,
-        is_active=body.is_active,
-    )
+    term = await svc.update_term(db, term_id, **data)
     if not term:
         raise HTTPException(status_code=404, detail="Term not found")
     return _term_to_response(term)
