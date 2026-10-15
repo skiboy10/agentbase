@@ -113,6 +113,10 @@ The **headless REST API** enables embedding Agentbase capabilities into any appl
    openssl rand -hex 32
    ```
 
+   **Must:** set a durable `SECRET_KEY` before exposing the instance
+   (`EXTERNAL_HOSTNAME`). Startup refuses to boot when the app is externally
+   reachable with an empty or known-default `SECRET_KEY`.
+
    At minimum, configure one LLM provider:
    ```bash
    # For local Ollama (recommended for getting started)

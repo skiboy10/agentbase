@@ -158,11 +158,16 @@ services:
   # Qdrant Vector Store (optional - use external if preferred)
   # By default, connects to your existing Qdrant at localhost:6333
   # Only start this if you need a separate instance: docker-compose --profile with-qdrant up
+  # Pin to a minor/patch (not :latest) — Qdrant upgrades can require stepping
+  # one minor at a time (RocksDB→Gridstore, gRPC field changes). See UPGRADING.md.
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.19.2
     ports:
       - "${QDRANT_PORT:-6335}:6333"
       - "${QDRANT_GRPC_PORT:-6336}:6334"
+    environment:
+      # Optional. When set, clients must pass the same value via QDRANT_API_KEY.
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-}
     volumes:
       - ./data/qdrant:/qdrant/storage # Bind mount for data persistence
     profiles:
