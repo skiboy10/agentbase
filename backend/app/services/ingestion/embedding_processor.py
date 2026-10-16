@@ -9,12 +9,18 @@ This module provides:
 """
 import hashlib
 from datetime import datetime
-from qdrant_client.models import Distance, VectorParams, PointStruct, TextIndexParams, TextIndexType, TokenizerType
+from qdrant_client.models import PointStruct
 import structlog
 
 from app.core.config import get_settings
 from app.core.qdrant import get_qdrant_client
 from app.providers.embedding_registry import get_embedding_registry
+from app.services.rag.collection_schema import (
+    create_hybrid_collection,
+    ensure_content_text_index,
+    ensure_sparse_bm25,
+    point_vectors,
+)
 from app.services.rag.filters import KEYWORD_INDEX_FIELDS
 
 settings = get_settings()
@@ -42,55 +48,14 @@ class EmbeddingProcessor:
         return hashlib.sha256(content.encode()).hexdigest()
 
     def create_collection(self, collection_name: str, vector_size: int) -> None:
-        """Create a Qdrant collection with vector and text index."""
-        self.client.create_collection(
-            collection_name=collection_name,
-            vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
-        )
-
-        # Add text index for hybrid search
-        try:
-            self.client.create_payload_index(
-                collection_name=collection_name,
-                field_name="content",
-                field_schema=TextIndexParams(
-                    type=TextIndexType.TEXT,
-                    tokenizer=TokenizerType.WORD,
-                    min_token_len=2,
-                    max_token_len=20,
-                    lowercase=True,
-                )
-            )
-            logger.info("Created text index for hybrid search", collection=collection_name)
-        except Exception as e:
-            logger.warning("Failed to create text index", collection=collection_name, error=str(e))
-
-        # Add keyword indexes on metadata fields for filtered search
+        """Create a Qdrant collection with dense + sparse BM25 + text index (#33)."""
+        create_hybrid_collection(self.client, collection_name, vector_size)
         self._create_keyword_indexes(collection_name)
 
     def ensure_text_index(self, collection_name: str) -> None:
-        """Add text index and keyword indexes to existing collection if not present."""
-        try:
-            collection_info = self.client.get_collection(collection_name)
-            # Check if content field has text index
-            payload_schema = collection_info.payload_schema or {}
-            if "content" not in payload_schema:
-                self.client.create_payload_index(
-                    collection_name=collection_name,
-                    field_name="content",
-                    field_schema=TextIndexParams(
-                        type=TextIndexType.TEXT,
-                        tokenizer=TokenizerType.WORD,
-                        min_token_len=2,
-                        max_token_len=20,
-                        lowercase=True,
-                    )
-                )
-                logger.info("Added text index to existing collection", collection=collection_name)
-        except Exception as e:
-            logger.warning("Failed to ensure text index", collection=collection_name, error=str(e))
-
-        # Ensure keyword indexes are present too
+        """Add text index, sparse BM25 schema, and keyword indexes if missing."""
+        ensure_sparse_bm25(self.client, collection_name)
+        ensure_content_text_index(self.client, collection_name)
         self._create_keyword_indexes(collection_name)
 
     def _create_keyword_indexes(self, collection_name: str) -> None:
@@ -157,6 +122,7 @@ class EmbeddingProcessor:
         current_time = datetime.utcnow().isoformat()
         embedding_model_id = f"{provider}/{model}"
 
+        include_sparse = ensure_sparse_bm25(self.client, collection_name)
         points = []
         for embedding, chunk, meta in zip(response.embeddings, chunks, metadata):
             payload = {
@@ -181,7 +147,13 @@ class EmbeddingProcessor:
                 for key, value in default_metadata.items():
                     if key not in _reserved:
                         payload[key] = value
-            points.append(PointStruct(id=meta["id"], vector=embedding, payload=payload))
+            points.append(
+                PointStruct(
+                    id=meta["id"],
+                    vector=point_vectors(embedding, chunk, include_sparse=include_sparse),
+                    payload=payload,
+                )
+            )
 
         self.client.upsert(collection_name=collection_name, points=points)
         return len(points)
