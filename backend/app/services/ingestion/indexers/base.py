@@ -10,7 +10,13 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
+from qdrant_client.models import PointStruct
+from app.services.rag.collection_schema import (
+    create_hybrid_collection,
+    ensure_content_text_index,
+    ensure_sparse_bm25,
+    point_vectors,
+)
 import structlog
 
 from app.core.config import get_settings
@@ -215,11 +221,10 @@ class BaseIndexer:
         """Create collection if it doesn't exist. Never destroys existing data."""
         try:
             self.client.get_collection(collection_name)
+            ensure_sparse_bm25(self.client, collection_name)
+            ensure_content_text_index(self.client, collection_name)
         except Exception:
-            self.client.create_collection(
-                collection_name=collection_name,
-                vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
-            )
+            create_hybrid_collection(self.client, collection_name, vector_size)
 
     def _load_source_metadata(self, source: "Source") -> None:
         """Load structured metadata from a knowledge source for injection into Qdrant payloads."""
@@ -320,6 +325,7 @@ class BaseIndexer:
         response = await self.embedding_registry.embed(provider, model, chunks)
         current_time = datetime.utcnow().isoformat()
         embedding_model_id = f"{provider}/{model}"
+        include_sparse = ensure_sparse_bm25(self.client, collection_name)
 
         points = []
         for embedding, chunk, meta in zip(response.embeddings, chunks, metadata):
@@ -365,7 +371,13 @@ class BaseIndexer:
                 for key, value in effective_metadata.items():
                     if key not in _reserved:
                         payload[key] = value
-            points.append(PointStruct(id=meta["id"], vector=embedding, payload=payload))
+            points.append(
+                PointStruct(
+                    id=meta["id"],
+                    vector=point_vectors(embedding, chunk, include_sparse=include_sparse),
+                    payload=payload,
+                )
+            )
 
         self.client.upsert(collection_name=collection_name, points=points)
 
@@ -373,6 +385,7 @@ class BaseIndexer:
         # Same embeddings, same payload except library_id is rewritten per target.
         if mirror_targets:
             for mirror_coll, mirror_lib_id in mirror_targets:
+                ensure_sparse_bm25(self.client, mirror_coll)
                 mirror_points = []
                 for p in points:
                     mirror_payload = dict(p.payload)
@@ -399,19 +412,15 @@ class BaseIndexer:
                 self.client.delete_collection(collection_name)
             except Exception:
                 pass
-            self.client.create_collection(
-                collection_name=collection_name,
-                vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
-            )
+            create_hybrid_collection(self.client, collection_name, vector_size)
         else:
             # Only create if it doesn't already exist
             try:
                 self.client.get_collection(collection_name)
+                ensure_sparse_bm25(self.client, collection_name)
+                ensure_content_text_index(self.client, collection_name)
             except Exception:
-                self.client.create_collection(
-                    collection_name=collection_name,
-                    vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
-                )
+                create_hybrid_collection(self.client, collection_name, vector_size)
 
     async def _store_embedding_config(
         self,

@@ -24,10 +24,11 @@ from .source_resolver import resolve_source_ids, overlay_filters_for_root
 logger = structlog.get_logger()
 
 # ---------------------------------------------------------------------------
-# Native Qdrant fusion capability detection
+# Native Qdrant fusion capability detection (#33)
 #
-# qdrant-client >= 1.9.0 exposes models.Prefetch and models.FusionQuery which
-# let the server do the RRF merge, saving a round-trip and improving accuracy.
+# qdrant-client >= 1.9.0 exposes Prefetch + FusionQuery. With the Compose pin
+# at Qdrant v1.19.x and qdrant-client>=1.18, Prefetch.query_filter is supported
+# and sparse BM25 Document inference is available server-side.
 # ---------------------------------------------------------------------------
 _SUPPORTS_NATIVE_FUSION = False
 _SUPPORTS_QUERY_GROUPS = False
@@ -41,21 +42,17 @@ except Exception:
 
 try:
     from qdrant_client import models as _qdm
-    # Prefetch and FusionQuery classes exist in qdrant-client 1.9.x but
-    # query_filter on Prefetch is not supported in all versions.
-    # Disabled until verified with the deployed Qdrant server version (#33).
-    # if hasattr(_qdm, "Prefetch") and hasattr(_qdm, "FusionQuery"):
-    #     _SUPPORTS_NATIVE_FUSION = True
-    pass
+    if hasattr(_qdm, "Prefetch") and hasattr(_qdm, "FusionQuery"):
+        _SUPPORTS_NATIVE_FUSION = True
     # query_groups was added in qdrant-client 1.7.x
     if hasattr(QdrantClient, "query_groups"):
         _SUPPORTS_QUERY_GROUPS = True
 except Exception:
     pass
 
-logger.debug(
+logger.info(
     "Qdrant client capabilities detected at module load",
-    native_fusion_available=_SUPPORTS_NATIVE_FUSION,
+    qdrant_client_version=_qdrant_version,
     native_fusion=_SUPPORTS_NATIVE_FUSION,
     query_groups=_SUPPORTS_QUERY_GROUPS,
 )
@@ -547,14 +544,17 @@ async def search_hybrid(
         logger.error("Failed to generate query embedding", error=str(e))
         return []
 
-    # Use native Qdrant server-side fusion when available (qdrant-client >= 1.9.0).
-    # Server-side RRF is more accurate because it can see the full ranking across
-    # all points, not just the top-N returned to the client.
-    #
-    # Upgrade path: update requirements.txt to qdrant-client>=1.9.0 to enable.
+    # Prefer native server-side RRF (dense + sparse BM25 when schema present,
+    # else dense + MatchText). Falls back to Python weighted RRF below.
     if _SUPPORTS_NATIVE_FUSION:
         return await _search_hybrid_native(
-            client, compatible_sources, query_embedding, query, top_k
+            client,
+            compatible_sources,
+            query_embedding,
+            query,
+            top_k,
+            filters=filters,
+            sub_source_overlay=sub_source_overlay,
         )
 
     # Fallback: Python-side weighted RRF (works with qdrant-client >= 1.7.0)
@@ -702,64 +702,80 @@ async def _search_hybrid_native(
     query_embedding: list[float],
     query_text: str,
     top_k: int,
+    filters: Optional[dict] = None,
+    sub_source_overlay: Optional[dict] = None,
 ) -> list[SearchResult]:
     """
-    Hybrid search using Qdrant's native server-side RRF fusion (qdrant-client >= 1.9.0).
+    Hybrid search using Qdrant's native server-side RRF fusion (#33).
 
-    Uses two Prefetch branches fused server-side by Qdrant RRF:
-      1. Dense vector retrieval (broad semantic candidates, no filter)
-      2. Text-filtered dense retrieval (keyword-restricted candidates)
+    Prefetch strategy per collection:
+      1. Dense vector retrieval (semantic)
+      2a. Sparse BM25 via ``Document(model=Qdrant/bm25)`` when the collection
+          has a named ``bm25`` sparse vector (preferred)
+      2b. Else dense retrieval restricted by MatchText on ``content`` (legacy)
 
-    The RRF merger promotes points that appear in BOTH branches — i.e., documents
-    that are both semantically similar AND contain the query terms. This is a
-    practical approximation of hybrid search without requiring a sparse vector index.
-
-    Limitation: True sparse-vector hybrid (BM25 + dense) requires configuring a
-    named sparse vector during indexing. This approach achieves a similar benefit
-    using the existing text payload index on 'content'. If the text index is absent
-    the second Prefetch returns empty results and only the dense branch contributes.
-
-    Args:
-        client: Qdrant client (qdrant-client >= 1.9.0)
-        sources: Source ORM objects with collection_name
-        query_embedding: Dense query vector
-        query_text: Raw query string (used as MatchText keyword filter)
-        top_k: Number of results to return per collection
+    Metadata / sub-source filters are applied to both Prefetch branches.
     """
     from qdrant_client import models as qdm  # Guarded: only called when native fusion confirmed
+    from .collection_schema import (
+        SPARSE_BM25_NAME,
+        bm25_query_document,
+        collection_has_sparse_bm25,
+    )
+    from .filters import build_metadata_filter
 
     all_results: list[SearchResult] = []
-
-    # Build the text filter — requires a FullText index on 'content' in the collection.
-    # If the index is missing, the second prefetch silently returns 0 results.
-    text_filter = qdm.Filter(
-        must=[
-            qdm.FieldCondition(
-                key="content",
-                match=qdm.MatchText(text=query_text),
-            )
-        ]
-    )
+    overlay = sub_source_overlay or {}
 
     for source in sources:
         try:
+            source_filters = overlay_filters_for_root(overlay, source.id, filters)
+            meta_filter = build_metadata_filter(source_filters) if source_filters else None
+
+            use_sparse = collection_has_sparse_bm25(client, source.collection_name)
+            dense_prefetch_kwargs: dict = {
+                "query": query_embedding,
+                "limit": top_k * 3,
+            }
+            if meta_filter:
+                dense_prefetch_kwargs["filter"] = meta_filter
+
+            if use_sparse:
+                sparse_kwargs: dict = {
+                    "query": bm25_query_document(query_text),
+                    "using": SPARSE_BM25_NAME,
+                    "limit": top_k * 3,
+                }
+                if meta_filter:
+                    sparse_kwargs["filter"] = meta_filter
+                prefetches = [
+                    qdm.Prefetch(**dense_prefetch_kwargs),
+                    qdm.Prefetch(**sparse_kwargs),
+                ]
+                fusion_method = "native_rrf_bm25"
+            else:
+                text_must = [
+                    qdm.FieldCondition(
+                        key="content",
+                        match=qdm.MatchText(text=query_text),
+                    )
+                ]
+                if meta_filter and meta_filter.must:
+                    text_must = list(meta_filter.must) + text_must
+                text_filter = qdm.Filter(must=text_must)
+                prefetches = [
+                    qdm.Prefetch(**dense_prefetch_kwargs),
+                    qdm.Prefetch(
+                        query=query_embedding,
+                        filter=text_filter,
+                        limit=top_k * 3,
+                    ),
+                ]
+                fusion_method = "native_rrf_text"
+
             response = client.query_points(
                 collection_name=source.collection_name,
-                prefetch=[
-                    # Branch 1: broad dense vector retrieval (semantic similarity)
-                    qdm.Prefetch(
-                        query=query_embedding,
-                        limit=top_k * 3,
-                    ),
-                    # Branch 2: dense retrieval restricted to keyword-matching chunks
-                    # Scores documents that match the query text AND are semantically
-                    # close — RRF promotes items appearing in both result sets.
-                    qdm.Prefetch(
-                        query=query_embedding,
-                        query_filter=text_filter,
-                        limit=top_k * 3,
-                    ),
-                ],
+                prefetch=prefetches,
                 query=qdm.FusionQuery(fusion=qdm.Fusion.RRF),
                 limit=top_k,
                 with_payload=True,
@@ -784,17 +800,17 @@ async def _search_hybrid_native(
                         "content_hash": hit.payload.get("content_hash"),
                         "scraped_at": hit.payload.get("scraped_at"),
                         "embedding_model": hit.payload.get("embedding_model"),
-                        "fusion_method": "native_rrf",
+                        "fusion_method": fusion_method,
+                        "classification": hit.payload.get("metadata") or {},
                     }
                 ))
 
         except Exception as e:
             logger.warning(
-                "Native hybrid search failed for collection — falling back to vector-only for this source",
+                "Native hybrid search failed for collection — skipping source",
                 collection=source.collection_name,
                 error=str(e),
             )
-            # Individual source failure: skip, continue with other collections
 
     all_results.sort(key=lambda r: r.score, reverse=True)
     return all_results[:top_k]

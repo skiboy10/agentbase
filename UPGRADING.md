@@ -72,6 +72,27 @@ example 1.17 → 1.18 → 1.19) — Qdrant storage format changes
 If you set `QDRANT_API_KEY` in `.env`, the included Qdrant container and the
 backend (`qdrant_api_key` / `QDRANT_API_KEY`) must share the same value.
 
+### Hybrid search / sparse BM25 (#33)
+
+New collections are created with a named sparse vector `bm25` (IDF) alongside
+the dense embedding, and the `content` text index uses English stopwords +
+Snowball stemming. Hybrid search prefers server-side RRF of dense + BM25
+Prefetch when that sparse schema is present.
+
+**Existing collections** keep working: search falls back to dense + `MatchText`
+Prefetch (or Python RRF) until you re-index. To pick up sparse BM25:
+
+1. Confirm Qdrant is on **v1.15.3+** (Compose pin is `v1.19.2`).
+2. Re-index each source (`POST /api/sources/{id}/index` or MCP
+   `agentbase_index_source`). The indexer adds the `bm25` schema via
+   `update_collection` if missing, then upserts points with both dense and
+   BM25 vectors.
+3. Optional: recreate the collection (full re-index with delete) if you also
+   want the upgraded text-index stemming/stopwords on `content` — payload
+   index options are not rewritten in place for older collections.
+
+No Alembic migration is involved; this is Qdrant-only schema + payload data.
+
 ## For contributors
 
 Development never happens in a live checkout. See
